@@ -1,0 +1,106 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { CATEGORIES, WORKOUTS, type MuscleCategory } from "@/lib/workoutCatalog";
+
+type Sex = "male" | "female";
+
+export default function FitnessPage() {
+  const [sex, setSex] = useState<Sex>("male");
+  const [category, setCategory] = useState<MuscleCategory | null>(null);
+  const [logged, setLogged] = useState(false);
+  const [logging, setLogging] = useState(false);
+
+  async function logWorkout() {
+    setLogging(true);
+    try {
+      const res = await fetch("/api/workouts", { method: "POST" });
+      if (res.ok) setLogged(true);
+    } finally {
+      setLogging(false);
+    }
+  }
+
+  return (
+    <div className="mx-auto max-w-md px-5 py-8">
+      <Link href="/" className="text-sm font-medium text-emerald-400">
+        ← Back
+      </Link>
+      <h1 className="mt-2 text-2xl font-bold">Fitness</h1>
+      <p className="mt-1 text-sm text-zinc-400">Pick a muscle group to see what to train today.</p>
+
+      <div className="mt-5 flex gap-1 rounded-full bg-zinc-900 p-1">
+        <button
+          onClick={() => setSex("male")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Man
+        </button>
+        <button
+          onClick={() => setSex("female")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Woman
+        </button>
+      </div>
+
+      <div className="lf-gradient-border mt-5 overflow-hidden p-2">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={sex === "male" ? "/fitness/male-diagram.jpg" : "/fitness/female-diagram.jpg"}
+          alt={`${sex === "male" ? "Male" : "Female"} muscle group diagram, front and back`}
+          className="w-full rounded-xl object-contain"
+        />
+      </div>
+
+      <div className="mt-6 grid grid-cols-3 gap-2.5">
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.key}
+            onClick={() => setCategory(c.key)}
+            className={`flex flex-col items-center gap-1 rounded-2xl border px-2 py-3 text-center active:scale-[0.97] ${
+              category === c.key
+                ? "border-emerald-500 bg-emerald-500/10"
+                : "border-zinc-800 bg-zinc-900"
+            }`}
+          >
+            <span className="text-xl">{c.icon}</span>
+            <span className="text-xs font-semibold text-zinc-200">{c.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {category && (
+        <div className="mt-6">
+          <h2 className="text-sm font-semibold text-zinc-300">
+            {CATEGORIES.find((c) => c.key === category)?.label} workout
+          </h2>
+          <div className="mt-3 space-y-2.5">
+            {WORKOUTS[category].map((ex) => (
+              <div key={ex.name} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-sm font-semibold text-zinc-100">{ex.name}</p>
+                  <p className="shrink-0 text-xs font-medium text-emerald-400">{ex.sets}</p>
+                </div>
+                <p className="mt-1 text-xs text-zinc-500">{ex.notes}</p>
+              </div>
+            ))}
+          </div>
+
+          <button
+            onClick={logWorkout}
+            disabled={logging || logged}
+            className="mt-5 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
+          >
+            {logged ? "Logged for today ✓" : logging ? "Logging..." : "I trained today"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
