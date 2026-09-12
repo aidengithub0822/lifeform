@@ -36,7 +36,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-dvh bg-zinc-950 pb-20 text-white antialiased">
+      <body className="min-h-dvh bg-zinc-950 pb-20 pt-[max(env(safe-area-inset-top),20px)] text-white antialiased">
         <ServiceWorkerRegister />
         <Splash />
         {children}
