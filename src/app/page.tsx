@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Flame from "@/components/Flame";
+import HeaderMenu from "@/components/HeaderMenu";
 import ScoreBadge from "@/components/ScoreBadge";
 import type { FoodLog, Goal } from "@/lib/types";
 
@@ -52,7 +53,7 @@ export default async function HomePage() {
   return (
     <div className="mx-auto max-w-md px-5 pt-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold lowercase tracking-tight">lifeform</h1>
+        <HeaderMenu goal={goal} />
         <Flame />
       </div>
 
@@ -100,7 +101,7 @@ export default async function HomePage() {
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{entry.food_name}</p>
               <p className="text-xs text-zinc-500">
-                {entry.calories} kcal · {Math.round(entry.protein_g)}g protein
+                {entry.calories} calories · {Math.round(entry.protein_g)}g protein
               </p>
             </div>
           </div>

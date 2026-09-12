@@ -19,7 +19,6 @@ export default function ProgressPage() {
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [weight, setWeight] = useState("");
-  const [waist, setWaist] = useState("");
   const [saving, setSaving] = useState(false);
   const [angle, setAngle] = useState<Angle>("front");
   const [uploading, setUploading] = useState(false);
@@ -58,12 +57,10 @@ export default function ProgressPage() {
         user_id: user.id,
         logged_at: new Date().toISOString().slice(0, 10),
         weight_lb: weight ? Number(weight) : null,
-        waist_in: waist ? Number(waist) : null,
       },
       { onConflict: "user_id,logged_at" }
     );
     setWeight("");
-    setWaist("");
     setSaving(false);
     load();
   }
@@ -99,25 +96,16 @@ export default function ProgressPage() {
 
       <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
         <p className="mb-3 text-sm font-semibold text-zinc-300">Today&apos;s numbers</p>
-        <div className="flex gap-2">
-          <input
-            type="number"
-            placeholder="Weight (lb)"
-            value={weight}
-            onChange={(e) => setWeight(e.target.value)}
-            className="w-1/2 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          />
-          <input
-            type="number"
-            placeholder="Waist (in)"
-            value={waist}
-            onChange={(e) => setWaist(e.target.value)}
-            className="w-1/2 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          />
-        </div>
+        <input
+          type="number"
+          placeholder="Weight (lb)"
+          value={weight}
+          onChange={(e) => setWeight(e.target.value)}
+          className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+        />
         <button
           onClick={logMeasurement}
-          disabled={saving || (!weight && !waist)}
+          disabled={saving || !weight}
           className="mt-3 w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
         >
           {saving ? "Saving..." : "Log"}
@@ -157,16 +145,27 @@ export default function ProgressPage() {
             </button>
           ))}
         </div>
-        <label className="flex items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 py-6 text-sm text-zinc-400 active:bg-zinc-900">
-          {uploading ? "Uploading..." : `+ Add ${angle} photo`}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && uploadPhoto(e.target.files[0])}
-          />
-        </label>
+        <div className="flex gap-2">
+          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 py-6 text-sm text-zinc-400 active:bg-zinc-900">
+            {uploading ? "Uploading..." : `Take ${angle} photo`}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && uploadPhoto(e.target.files[0])}
+            />
+          </label>
+          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 py-6 text-sm text-zinc-400 active:bg-zinc-900">
+            {uploading ? "Uploading..." : "Choose from library"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && uploadPhoto(e.target.files[0])}
+            />
+          </label>
+        </div>
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           {photos.map((p) => (

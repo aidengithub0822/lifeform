@@ -17,17 +17,40 @@ interface ScanResult {
   score_reason: string;
 }
 
-function fileToBase64(file: File): Promise<{ data: string; mediaType: string }> {
+// iPhone camera photos can be several MB, and base64-encoding inflates that
+// by ~33% — easily enough to blow past the ~4.5MB request body limit on
+// Vercel's serverless functions, which then rejects the request before our
+// API route ever runs (no JSON body, just a plain error page). Downscaling
+// and re-compressing client-side keeps every upload comfortably small while
+// staying more than sharp enough for the model to identify food.
+function compressImage(file: File): Promise<{ data: string; mediaType: string; previewUrl: string }> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      const [header, data] = result.split(",");
-      const mediaType = header.match(/data:(.*);base64/)?.[1] || file.type;
-      resolve({ data, mediaType });
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX_DIM = 1280;
+      const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error("Could not process image"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
+      const [header, data] = dataUrl.split(",");
+      const mediaType = header.match(/data:(.*);base64/)?.[1] || "image/jpeg";
+      URL.revokeObjectURL(objectUrl);
+      resolve({ data, mediaType, previewUrl: dataUrl });
     };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Could not load image"));
+    };
+    img.src = objectUrl;
   });
 }
 
@@ -46,9 +69,13 @@ export default function ScanPage() {
   async function handleFile(file: File) {
     setError(null);
     setResult(null);
-    const encoded = await fileToBase64(file);
-    setImageData(encoded);
-    setImagePreview(URL.createObjectURL(file));
+    try {
+      const { data, mediaType, previewUrl } = await compressImage(file);
+      setImageData({ data, mediaType });
+      setImagePreview(previewUrl);
+    } catch {
+      setError("Couldn't process that photo — try a different one.");
+    }
   }
 
   async function runScan() {
@@ -61,12 +88,24 @@ export default function ScanPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ imageBase64: imageData.data, mediaType: imageData.mediaType, note }),
       });
-      const body = await res.json();
+      let body: { error?: string } & Partial<ScanResult> = {};
+      try {
+        body = await res.json();
+      } catch {
+        setError(
+          res.status === 413
+            ? "That photo was too large to send — try again, it should auto-compress now."
+            : `Scan failed (server error ${res.status}). Try again.`
+        );
+        return;
+      }
       if (!res.ok) {
         setError(body.error || "Scan failed");
         return;
       }
-      setResult(body);
+      setResult(body as ScanResult);
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
     } finally {
       setScanning(false);
     }
@@ -136,17 +175,36 @@ export default function ScanPage() {
       <p className="mt-1 text-sm text-zinc-400">Snap a photo and get calories, macros, and a score.</p>
 
       {!imagePreview && (
-        <label className="mt-8 flex aspect-square flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-zinc-700 text-zinc-400 active:bg-zinc-900">
+        <div className="mt-8 flex aspect-square flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-zinc-700 text-zinc-400">
           <span className="text-5xl">📸</span>
-          <span className="text-sm font-medium">Tap to take a photo</span>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
-          />
-        </label>
+
+          {/* `capture` here keeps the camera embedded inside the app on iOS
+              (no full app-switch to Camera.app, so you never get bounced out
+              to the home screen). A separate control without `capture` is
+              used for the library so that one still shows the normal Photos
+              picker sheet. */}
+          <label className="cursor-pointer rounded-xl bg-emerald-500 px-6 py-3 text-sm font-semibold text-black active:opacity-80">
+            Take a photo
+            <input
+              ref={inputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+          </label>
+
+          <label className="cursor-pointer text-sm font-medium text-zinc-300 underline underline-offset-4 active:opacity-70">
+            Choose from library
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])}
+            />
+          </label>
+        </div>
       )}
 
       {imagePreview && (
@@ -187,7 +245,7 @@ export default function ScanPage() {
                 <ScoreBadge score={result.score} size="lg" />
                 <div>
                   <p className="font-semibold">{result.food_name}</p>
-                  <p className="text-sm text-zinc-400">{result.calories} kcal</p>
+                  <p className="text-sm text-zinc-400">{result.calories} calories</p>
                 </div>
               </div>
 

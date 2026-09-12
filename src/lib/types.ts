@@ -81,6 +81,14 @@ export interface ProgressPhoto {
   notes: string | null;
 }
 
+export interface Feedback {
+  id: string;
+  user_id: string;
+  author_email: string | null;
+  message: string;
+  created_at: string;
+}
+
 // Minimal Database type so @supabase/ssr's generics are happy.
 // Not a full generated schema — safe to leave loose.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

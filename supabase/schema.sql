@@ -112,6 +112,19 @@ create table if not exists public.streaks (
 );
 create index if not exists streaks_widget_token_idx on public.streaks (widget_token);
 
+-- Feedback/comments — lets anyone signed in (e.g. family you invite to use
+-- the app) leave you a note. Unlike the other tables this is intentionally
+-- readable by every signed-in user (not just its own author), so you can
+-- actually see what people say; you can only post as yourself, though.
+create table if not exists public.feedback (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  author_email text,
+  message text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists feedback_time_idx on public.feedback (created_at desc);
+
 -- Row Level Security: every table is private to its own user.
 alter table public.goals enable row level security;
 alter table public.food_logs enable row level security;
@@ -121,6 +134,7 @@ alter table public.lifts enable row level security;
 alter table public.progress_photos enable row level security;
 alter table public.workouts enable row level security;
 alter table public.streaks enable row level security;
+alter table public.feedback enable row level security;
 
 do $$
 declare
@@ -135,6 +149,17 @@ begin
     );
   end loop;
 end $$;
+
+-- feedback is the one table that isn't strictly owner-only: everyone signed
+-- in can read every row (so you see comments from anyone using the app),
+-- but you can only ever insert a row as yourself.
+drop policy if exists "feedback_select_all" on public.feedback;
+create policy "feedback_select_all" on public.feedback
+  for select using (auth.uid() is not null);
+
+drop policy if exists "feedback_insert_own" on public.feedback;
+create policy "feedback_insert_own" on public.feedback
+  for insert with check (auth.uid() = user_id);
 
 -- Storage buckets for food photos and progress photos.
 insert into storage.buckets (id, name, public)

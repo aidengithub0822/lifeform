@@ -71,7 +71,7 @@ export default function RecipesPage() {
               <div>
                 <p className="font-semibold">{r.name}</p>
                 <p className="text-xs text-zinc-500">
-                  {Math.round(r.calories / r.servings)} kcal · {Math.round(r.protein_g / r.servings)}g protein /
+                  {Math.round(r.calories / r.servings)} calories · {Math.round(r.protein_g / r.servings)}g protein /
                   serving
                 </p>
               </div>
