@@ -17,6 +17,8 @@ interface ScanResult {
   score_reason: string;
 }
 
+type Mode = "photo" | "text";
+
 // iPhone camera photos can be several MB, and base64-encoding inflates that
 // by ~33% — easily enough to blow past the ~4.5MB request body limit on
 // Vercel's serverless functions, which then rejects the request before our
@@ -58,8 +60,10 @@ export default function ScanPage() {
   const router = useRouter();
   const supabase = createClient();
   const inputRef = useRef<HTMLInputElement>(null);
+  const [mode, setMode] = useState<Mode>("photo");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [imageData, setImageData] = useState<{ data: string; mediaType: string } | null>(null);
+  const [typedFood, setTypedFood] = useState("");
   const [note, setNote] = useState("");
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
@@ -79,14 +83,19 @@ export default function ScanPage() {
   }
 
   async function runScan() {
-    if (!imageData) return;
+    if (mode === "photo" && !imageData) return;
+    if (mode === "text" && !typedFood.trim()) return;
     setScanning(true);
     setError(null);
     try {
       const res = await fetch("/api/scan-food", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: imageData.data, mediaType: imageData.mediaType, note }),
+        body: JSON.stringify(
+          mode === "photo"
+            ? { imageBase64: imageData?.data, mediaType: imageData?.mediaType, note }
+            : { foodDescription: typedFood }
+        ),
       });
       let body: { error?: string } & Partial<ScanResult> = {};
       try {
@@ -163,19 +172,47 @@ export default function ScanPage() {
   function reset() {
     setImagePreview(null);
     setImageData(null);
+    setTypedFood("");
     setResult(null);
     setNote("");
     setError(null);
     if (inputRef.current) inputRef.current.value = "";
   }
 
+  function switchMode(next: Mode) {
+    if (next === mode) return;
+    reset();
+    setMode(next);
+  }
+
+  const hasInput = mode === "photo" ? !!imagePreview : !!result || scanning;
+
   return (
     <div className="mx-auto max-w-md px-6 py-8">
-      <h1 className="text-2xl font-bold">Scan food</h1>
-      <p className="mt-1 text-sm text-zinc-400">Snap a photo and get calories, macros, and a score.</p>
+      <h1 className="text-2xl font-bold">Log food</h1>
+      <p className="mt-1 text-sm text-zinc-400">Snap a photo, or just type what you ate.</p>
 
-      {!imagePreview && (
-        <div className="mt-8 flex aspect-square flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-zinc-700 text-zinc-400">
+      <div className="mt-5 flex gap-1 rounded-full bg-zinc-900 p-1">
+        <button
+          onClick={() => switchMode("photo")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            mode === "photo" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          📸 Photo
+        </button>
+        <button
+          onClick={() => switchMode("text")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            mode === "text" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          ⌨️ Type it
+        </button>
+      </div>
+
+      {mode === "photo" && !imagePreview && (
+        <div className="mt-6 flex aspect-square flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-zinc-700 text-zinc-400">
           <span className="text-5xl">📸</span>
 
           {/* `capture` here keeps the camera embedded inside the app on iOS
@@ -207,7 +244,27 @@ export default function ScanPage() {
         </div>
       )}
 
-      {imagePreview && (
+      {mode === "text" && !result && (
+        <div className="mt-6 space-y-3">
+          <textarea
+            value={typedFood}
+            onChange={(e) => setTypedFood(e.target.value)}
+            placeholder={"What did you eat? e.g. \"2 scoops whey protein with oat milk and a banana\""}
+            rows={4}
+            className="w-full rounded-2xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm placeholder-zinc-500 outline-none focus:border-emerald-500"
+          />
+          <button
+            onClick={runScan}
+            disabled={scanning || !typedFood.trim()}
+            className="w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
+          >
+            {scanning ? "Estimating..." : "Estimate nutrition"}
+          </button>
+          {error && <p className="text-sm text-red-400">{error}</p>}
+        </div>
+      )}
+
+      {mode === "photo" && imagePreview && (
         <div className="mt-6">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={imagePreview} alt="Food to scan" className="w-full rounded-2xl object-cover" />
@@ -236,53 +293,54 @@ export default function ScanPage() {
                   {scanning ? "Scanning..." : "Scan"}
                 </button>
               </div>
+              {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
             </>
-          )}
-
-          {result && (
-            <div className="mt-5 space-y-4">
-              <div className="flex items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-                <ScoreBadge score={result.score} size="lg" />
-                <div>
-                  <p className="font-semibold">{result.food_name}</p>
-                  <p className="text-sm text-zinc-400">{result.calories} calories</p>
-                </div>
-              </div>
-
-              <p className="text-sm text-zinc-300">{result.score_reason}</p>
-              {result.estimated_servings_note && (
-                <p className="text-xs text-zinc-500">Assumption: {result.estimated_servings_note}</p>
-              )}
-
-              <div className="grid grid-cols-3 gap-3 text-center">
-                <Macro label="Protein" value={result.protein_g} />
-                <Macro label="Carbs" value={result.carbs_g} />
-                <Macro label="Fat" value={result.fat_g} />
-              </div>
-
-              {error && <p className="text-sm text-red-400">{error}</p>}
-
-              <div className="flex gap-3">
-                <button
-                  onClick={reset}
-                  className="flex-1 rounded-xl bg-zinc-800 py-3 font-medium text-zinc-300"
-                >
-                  Discard
-                </button>
-                <button
-                  onClick={saveLog}
-                  disabled={saving}
-                  className="flex-[2] rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
-                >
-                  {saving ? "Saving..." : "Log it"}
-                </button>
-              </div>
-            </div>
           )}
         </div>
       )}
 
-      {error && !result && <p className="mt-4 text-sm text-red-400">{error}</p>}
+      {result && (
+        <div className="mt-5 space-y-4">
+          <div className="flex items-center gap-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+            <ScoreBadge score={result.score} size="lg" />
+            <div>
+              <p className="font-semibold">{result.food_name}</p>
+              <p className="text-sm text-zinc-400">{result.calories} calories</p>
+            </div>
+          </div>
+
+          <p className="text-sm text-zinc-300">{result.score_reason}</p>
+          {result.estimated_servings_note && (
+            <p className="text-xs text-zinc-500">Assumption: {result.estimated_servings_note}</p>
+          )}
+
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <Macro label="Protein" value={result.protein_g} />
+            <Macro label="Carbs" value={result.carbs_g} />
+            <Macro label="Fat" value={result.fat_g} />
+          </div>
+
+          {error && <p className="text-sm text-red-400">{error}</p>}
+
+          <div className="flex gap-3">
+            <button
+              onClick={reset}
+              className="flex-1 rounded-xl bg-zinc-800 py-3 font-medium text-zinc-300"
+            >
+              Discard
+            </button>
+            <button
+              onClick={saveLog}
+              disabled={saving}
+              className="flex-[2] rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Log it"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {!hasInput && error && <p className="mt-4 text-sm text-red-400">{error}</p>}
     </div>
   );
 }

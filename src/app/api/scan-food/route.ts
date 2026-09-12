@@ -63,14 +63,15 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const body = await request.json();
-  const { imageBase64, mediaType, note } = body as {
-    imageBase64: string;
-    mediaType: string;
+  const { imageBase64, mediaType, note, foodDescription } = body as {
+    imageBase64?: string;
+    mediaType?: string;
     note?: string;
+    foodDescription?: string;
   };
 
-  if (!imageBase64) {
-    return NextResponse.json({ error: "No image provided" }, { status: 400 });
+  if (!imageBase64 && !foodDescription?.trim()) {
+    return NextResponse.json({ error: "No image or description provided" }, { status: 400 });
   }
 
   const { data: goal } = await supabase
@@ -78,6 +79,37 @@ export async function POST(request: Request) {
     .select("*")
     .eq("user_id", user.id)
     .maybeSingle();
+
+  // Two entry paths: a photo (vision) or a typed description (text-only).
+  // Both use the same tool/schema so the rest of the app doesn't need to care
+  // which one produced a given log.
+  const content: Anthropic.Messages.ContentBlockParam[] = imageBase64
+    ? [
+        {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: (mediaType || "image/jpeg") as "image/jpeg" | "image/png" | "image/webp",
+            data: imageBase64,
+          },
+        },
+        {
+          type: "text",
+          text: `Identify the food in this photo and estimate its nutrition. ${goalContext(
+            goal as Goal | null
+          )}${
+            note ? ` The user added this note: "${note}".` : ""
+          } Give your best realistic estimate even with visual uncertainty — state assumptions in estimated_servings_note rather than refusing to estimate.`,
+        },
+      ]
+    : [
+        {
+          type: "text",
+          text: `The user typed in a description of what they ate (no photo): "${foodDescription}". Estimate its nutrition. ${goalContext(
+            goal as Goal | null
+          )} Give your best realistic estimate from the description, assuming a typical/reasonable portion when it isn't specified — state that assumption in estimated_servings_note rather than refusing to estimate.`,
+        },
+      ];
 
   try {
     const message = await anthropic.messages.create({
@@ -88,24 +120,7 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "user",
-          content: [
-            {
-              type: "image",
-              source: {
-                type: "base64",
-                media_type: mediaType as "image/jpeg" | "image/png" | "image/webp",
-                data: imageBase64,
-              },
-            },
-            {
-              type: "text",
-              text: `Identify the food in this photo and estimate its nutrition. ${goalContext(
-                goal as Goal | null
-              )}${
-                note ? ` The user added this note: "${note}".` : ""
-              } Give your best realistic estimate even with visual uncertainty — state assumptions in estimated_servings_note rather than refusing to estimate.`,
-            },
-          ],
+          content,
         },
       ],
     });

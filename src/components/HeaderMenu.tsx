@@ -85,7 +85,7 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
     <>
       <button
         onClick={openMenu}
-        className="text-xl font-bold lowercase tracking-tight active:opacity-70"
+        className="lf-glow lf-shine flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-zinc-900 px-3.5 py-1.5 text-lg font-extrabold lowercase tracking-tight text-emerald-400 active:scale-95"
       >
         lifeform
       </button>

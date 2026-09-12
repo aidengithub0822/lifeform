@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import Flame from "@/components/Flame";
 import HeaderMenu from "@/components/HeaderMenu";
 import ScoreBadge from "@/components/ScoreBadge";
+import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
+import ExploreGrid from "@/components/ExploreGrid";
 import type { FoodLog, Goal } from "@/lib/types";
 
 function todayRangeUTC() {
@@ -12,6 +14,19 @@ function todayRangeUTC() {
   const end = new Date(start);
   end.setUTCDate(end.getUTCDate() + 1);
   return { start: start.toISOString(), end: end.toISOString() };
+}
+
+// Builds the last 7 calendar days (oldest first) as YYYY-MM-DD, in the
+// browser's/server's local view of UTC-day boundaries — good enough for a
+// trend chart without needing per-user timezone storage.
+function last7Days(): string[] {
+  const days: string[] = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
 }
 
 export default async function HomePage() {
@@ -30,14 +45,23 @@ export default async function HomePage() {
   if (!goal) redirect("/onboarding");
 
   const { start, end } = todayRangeUTC();
-  const { data: logs } = await supabase
-    .from("food_logs")
-    .select("*")
-    .eq("user_id", user.id)
-    .gte("logged_at", start)
-    .lt("logged_at", end)
-    .order("logged_at", { ascending: false })
-    .returns<FoodLog[]>();
+  const weekDays = last7Days();
+  const [{ data: logs }, { data: weekLogs }] = await Promise.all([
+    supabase
+      .from("food_logs")
+      .select("*")
+      .eq("user_id", user.id)
+      .gte("logged_at", start)
+      .lt("logged_at", end)
+      .order("logged_at", { ascending: false })
+      .returns<FoodLog[]>(),
+    supabase
+      .from("food_logs")
+      .select("logged_at, calories, protein_g, score")
+      .eq("user_id", user.id)
+      .gte("logged_at", weekDays[0])
+      .returns<Pick<FoodLog, "logged_at" | "calories" | "protein_g" | "score">[]>(),
+  ]);
 
   const entries = logs ?? [];
   const totals = entries.reduce(
@@ -49,6 +73,14 @@ export default async function HomePage() {
     }),
     { calories: 0, protein: 0, carbs: 0, fat: 0 }
   );
+
+  const dayTotals: DayTotal[] = weekDays.map((date) => {
+    const rows = (weekLogs ?? []).filter((r) => String(r.logged_at).slice(0, 10) === date);
+    const calories = rows.reduce((a, r) => a + r.calories, 0);
+    const protein = rows.reduce((a, r) => a + Number(r.protein_g), 0);
+    const avgScore = rows.length ? rows.reduce((a, r) => a + r.score, 0) / rows.length : null;
+    return { date, calories, protein, avgScore };
+  });
 
   return (
     <div className="mx-auto max-w-md px-5 pt-6">
@@ -82,7 +114,7 @@ export default async function HomePage() {
         </Link>
       </div>
 
-      <div className="mt-3 space-y-3 pb-8">
+      <div className="mt-3 space-y-3">
         {entries.length === 0 && (
           <div className="rounded-2xl border border-dashed border-zinc-800 py-10 text-center text-sm text-zinc-500">
             Nothing logged yet today.
@@ -107,6 +139,10 @@ export default async function HomePage() {
           </div>
         ))}
       </div>
+
+      <WeeklyTrends days={dayTotals} calorieTarget={goal.calorie_target} />
+      <ExploreGrid />
+      <div className="pb-8" />
     </div>
   );
 }

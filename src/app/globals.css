@@ -24,3 +24,78 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* --- Uiverse-inspired accents: a pulsing glow for the primary "lifeform"
+   entry point, and a slowly rotating gradient border for cards that should
+   feel a little more alive than a flat border. Hand-authored (not copied
+   snippets) but in that same glow/gradient-border style. --- */
+
+@property --lf-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes lf-pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(16, 185, 129, 0.5),
+      0 0 16px 1px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 5px rgba(16, 185, 129, 0),
+      0 0 26px 5px rgba(16, 185, 129, 0.55);
+  }
+}
+
+@keyframes lf-border-spin {
+  to {
+    --lf-angle: 360deg;
+  }
+}
+
+.lf-glow {
+  animation: lf-pulse-glow 2.6s ease-in-out infinite;
+}
+
+.lf-gradient-border {
+  position: relative;
+  border-radius: 1.25rem;
+  border: 1px solid transparent;
+  background:
+    linear-gradient(#18181b, #18181b) padding-box,
+    conic-gradient(from var(--lf-angle), #10b981, #3b82f6, #a855f7, #10b981) border-box;
+  animation: lf-border-spin 6s linear infinite;
+}
+
+.lf-shine {
+  position: relative;
+  overflow: hidden;
+}
+
+.lf-shine::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 20%,
+    rgba(255, 255, 255, 0.16) 35%,
+    rgba(255, 255, 255, 0.16) 40%,
+    transparent 55%
+  );
+  background-size: 220% 100%;
+  animation: lf-shine-sweep 3.2s ease-in-out infinite;
+}
+
+@keyframes lf-shine-sweep {
+  0% {
+    background-position: 140% 0;
+  }
+  60%,
+  100% {
+    background-position: -60% 0;
+  }
+}
