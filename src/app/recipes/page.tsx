@@ -101,8 +101,39 @@ function RecipeForm({ onSaved }: { onSaved: () => void }) {
   const [protein, setProtein] = useState(0);
   const [carbs, setCarbs] = useState(0);
   const [fat, setFat] = useState(0);
+  const [servingNote, setServingNote] = useState<string | null>(null);
+  const [estimated, setEstimated] = useState(false);
+  const [estimating, setEstimating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function estimate() {
+    setEstimating(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/estimate-recipe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, ingredients, instructions }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(body.error || "Couldn't estimate nutrition");
+        return;
+      }
+      setCalories(Math.round(body.total_calories));
+      setProtein(Math.round(body.total_protein_g));
+      setCarbs(Math.round(body.total_carbs_g));
+      setFat(Math.round(body.total_fat_g));
+      setServings(Math.max(1, Math.round(body.recommended_servings)));
+      setServingNote(body.serving_note);
+      setEstimated(true);
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setEstimating(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -143,10 +174,13 @@ function RecipeForm({ onSaved }: { onSaved: () => void }) {
         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
       />
       <textarea
-        placeholder="Ingredients"
+        placeholder="Ingredients (e.g. '1 lb chicken breast, 2 cups rice, 1 tbsp olive oil...')"
         value={ingredients}
-        onChange={(e) => setIngredients(e.target.value)}
-        rows={2}
+        onChange={(e) => {
+          setIngredients(e.target.value);
+          setEstimated(false);
+        }}
+        rows={3}
         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
       />
       <textarea
@@ -156,21 +190,43 @@ function RecipeForm({ onSaved }: { onSaved: () => void }) {
         rows={2}
         className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
       />
-      <p className="text-xs text-zinc-500">Total nutrition for the whole recipe (we&apos;ll divide by servings):</p>
-      <div className="grid grid-cols-2 gap-2">
-        <NumberField label="Servings" value={servings} onChange={setServings} />
-        <NumberField label="Calories" value={calories} onChange={setCalories} />
-        <NumberField label="Protein (g)" value={protein} onChange={setProtein} />
-        <NumberField label="Carbs (g)" value={carbs} onChange={setCarbs} />
-        <NumberField label="Fat (g)" value={fat} onChange={setFat} />
-      </div>
+
+      <button
+        onClick={estimate}
+        disabled={estimating || !ingredients.trim()}
+        className="w-full rounded-xl bg-blue-500 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+      >
+        {estimating ? "Estimating..." : "✨ Estimate nutrition with AI"}
+      </button>
+
+      {estimated && (
+        <>
+          {servingNote && (
+            <p className="rounded-xl bg-zinc-950 p-3 text-xs text-zinc-400">
+              <span className="font-semibold text-zinc-300">Suggested serving: </span>
+              {servingNote}
+            </p>
+          )}
+          <p className="text-xs text-zinc-500">
+            Total nutrition for the whole recipe (feel free to adjust anything below):
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            <NumberField label="Servings" value={servings} onChange={setServings} />
+            <NumberField label="Calories" value={calories} onChange={setCalories} />
+            <NumberField label="Protein (g)" value={protein} onChange={setProtein} />
+            <NumberField label="Carbs (g)" value={carbs} onChange={setCarbs} />
+            <NumberField label="Fat (g)" value={fat} onChange={setFat} />
+          </div>
+        </>
+      )}
+
       {error && <p className="text-sm text-red-400">{error}</p>}
       <button
         onClick={save}
-        disabled={saving || !name}
+        disabled={saving || !name || !estimated}
         className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
       >
-        {saving ? "Saving..." : "Save recipe"}
+        {saving ? "Saving..." : estimated ? "Save recipe" : "Estimate nutrition first"}
       </button>
     </div>
   );
