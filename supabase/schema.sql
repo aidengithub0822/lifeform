@@ -190,6 +190,39 @@ create table if not exists public.community_posts (
 );
 create index if not exists community_posts_time_idx on public.community_posts (created_at desc);
 
+-- Replies on a community post — what makes a post open into its own thread
+-- page instead of being a flat, un-discussable list. Moderated the same way
+-- as top-level posts (checked by AI before insert).
+create table if not exists public.community_comments (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.community_posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  author_username text,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists community_comments_post_time_idx on public.community_comments (post_id, created_at asc);
+
+-- Likes and comments on a profile gallery photo.
+create table if not exists public.photo_likes (
+  id uuid primary key default gen_random_uuid(),
+  photo_id uuid not null references public.profile_photos(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (photo_id, user_id)
+);
+create index if not exists photo_likes_photo_idx on public.photo_likes (photo_id);
+
+create table if not exists public.photo_comments (
+  id uuid primary key default gen_random_uuid(),
+  photo_id uuid not null references public.profile_photos(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  author_username text,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists photo_comments_photo_time_idx on public.photo_comments (photo_id, created_at asc);
+
 -- Row Level Security: every table is private to its own user.
 alter table public.goals enable row level security;
 alter table public.food_logs enable row level security;
@@ -205,6 +238,9 @@ alter table public.journal_entries enable row level security;
 alter table public.community_posts enable row level security;
 alter table public.profile_photos enable row level security;
 alter table public.messages enable row level security;
+alter table public.community_comments enable row level security;
+alter table public.photo_likes enable row level security;
+alter table public.photo_comments enable row level security;
 
 do $$
 declare
@@ -266,6 +302,47 @@ create policy "community_insert_own" on public.community_posts
 
 drop policy if exists "community_delete_own" on public.community_posts;
 create policy "community_delete_own" on public.community_posts
+  for delete using (auth.uid() = user_id);
+
+-- community_comments: same shape as community_posts — readable by anyone
+-- signed in, postable/deletable only as yourself.
+drop policy if exists "community_comments_select_all" on public.community_comments;
+create policy "community_comments_select_all" on public.community_comments
+  for select using (auth.uid() is not null);
+
+drop policy if exists "community_comments_insert_own" on public.community_comments;
+create policy "community_comments_insert_own" on public.community_comments
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "community_comments_delete_own" on public.community_comments;
+create policy "community_comments_delete_own" on public.community_comments
+  for delete using (auth.uid() = user_id);
+
+-- photo_likes / photo_comments: anyone signed in can see who liked/commented
+-- on a photo (needed to render counts on someone else's profile), but you
+-- can only ever like/comment/unlike as yourself.
+drop policy if exists "photo_likes_select_all" on public.photo_likes;
+create policy "photo_likes_select_all" on public.photo_likes
+  for select using (auth.uid() is not null);
+
+drop policy if exists "photo_likes_insert_own" on public.photo_likes;
+create policy "photo_likes_insert_own" on public.photo_likes
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "photo_likes_delete_own" on public.photo_likes;
+create policy "photo_likes_delete_own" on public.photo_likes
+  for delete using (auth.uid() = user_id);
+
+drop policy if exists "photo_comments_select_all" on public.photo_comments;
+create policy "photo_comments_select_all" on public.photo_comments
+  for select using (auth.uid() is not null);
+
+drop policy if exists "photo_comments_insert_own" on public.photo_comments;
+create policy "photo_comments_insert_own" on public.photo_comments
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "photo_comments_delete_own" on public.photo_comments;
+create policy "photo_comments_delete_own" on public.photo_comments
   for delete using (auth.uid() = user_id);
 
 -- profile_photos: anyone signed in can view anyone's gallery (profile pages

@@ -4,6 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { compressImageForUpload } from "@/lib/imageUpload";
+import PhotoLightbox from "@/components/PhotoLightbox";
+import PullToRefresh from "@/components/PullToRefresh";
 import type { Profile, ProfilePhoto } from "@/lib/types";
 
 export default function ProfilePage() {
@@ -25,6 +28,7 @@ export default function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<ProfilePhoto | null>(null);
 
   async function load() {
     setLoading(true);
@@ -82,43 +86,58 @@ export default function ProfilePage() {
     if (!profile) return;
     setUploadingAvatar(true);
     setGalleryError(null);
-    const path = `${profile.user_id}/avatar.jpg`;
-    const { error } = await supabase.storage.from("profile-media").upload(path, file, { upsert: true });
-    if (error) {
-      setGalleryError(error.message);
+    try {
+      const blob = await compressImageForUpload(file, 800, 0.85);
+      const path = `${profile.user_id}/avatar.jpg`;
+      const { error } = await supabase.storage.from("profile-media").upload(path, blob, {
+        upsert: true,
+        contentType: "image/jpeg",
+      });
+      if (error) {
+        setGalleryError(error.message);
+        return;
+      }
+      const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      // Cache-bust so the new avatar shows immediately instead of a stale cached image at the same URL.
+      const bustUrl = `${url}?t=${Date.now()}`;
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ avatar_url: bustUrl, updated_at: new Date().toISOString() })
+        .eq("user_id", profile.user_id);
+      if (updateError) setGalleryError(updateError.message);
+    } catch (err) {
+      setGalleryError(err instanceof Error ? err.message : "Couldn't process that image");
+    } finally {
       setUploadingAvatar(false);
-      return;
+      await load();
     }
-    const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
-    // Cache-bust so the new avatar shows immediately instead of a stale cached image at the same URL.
-    const bustUrl = `${url}?t=${Date.now()}`;
-    const { error: updateError } = await supabase
-      .from("profiles")
-      .update({ avatar_url: bustUrl, updated_at: new Date().toISOString() })
-      .eq("user_id", profile.user_id);
-    if (updateError) setGalleryError(updateError.message);
-    setUploadingAvatar(false);
-    await load();
   }
 
   async function uploadGalleryPhoto(file: File) {
     if (!profile) return;
     setUploadingPhoto(true);
     setGalleryError(null);
-    const path = `${profile.user_id}/gallery/${Date.now()}.jpg`;
-    const { error } = await supabase.storage.from("profile-media").upload(path, file);
-    if (error) {
-      setGalleryError(error.message);
+    try {
+      const blob = await compressImageForUpload(file, 1600, 0.85);
+      const path = `${profile.user_id}/gallery/${Date.now()}.jpg`;
+      const { error } = await supabase.storage.from("profile-media").upload(path, blob, {
+        contentType: "image/jpeg",
+      });
+      if (error) {
+        setGalleryError(error.message);
+        return;
+      }
+      const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      const { error: insertError } = await supabase
+        .from("profile_photos")
+        .insert({ user_id: profile.user_id, photo_url: url });
+      if (insertError) setGalleryError(insertError.message);
+    } catch (err) {
+      setGalleryError(err instanceof Error ? err.message : "Couldn't process that image");
+    } finally {
       setUploadingPhoto(false);
-      return;
+      await load();
     }
-    const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
-    const { error: insertError } = await supabase
-      .from("profile_photos")
-      .insert({ user_id: profile.user_id, photo_url: url });
-    if (insertError) setGalleryError(insertError.message);
-    setUploadingPhoto(false);
-    await load();
   }
 
   async function deleteGalleryPhoto(id: string) {
@@ -148,6 +167,7 @@ export default function ProfilePage() {
   }
 
   return (
+    <PullToRefresh onRefresh={load}>
     <div className="mx-auto max-w-md px-5 py-8">
       <Link href="/" className="text-sm font-medium text-emerald-400">
         ← Back
@@ -242,7 +262,8 @@ export default function ProfilePage() {
                 <img
                   src={p.photo_url}
                   alt={`${profile.username}'s photo`}
-                  className="aspect-square w-full rounded-xl object-cover"
+                  onClick={() => setLightboxPhoto(p)}
+                  className="aspect-square w-full rounded-xl object-cover active:opacity-80"
                 />
                 {isOwn && (
                   <button
@@ -258,5 +279,7 @@ export default function ProfilePage() {
         )}
       </div>
     </div>
+    {lightboxPhoto && <PhotoLightbox photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />}
+    </PullToRefresh>
   );
 }

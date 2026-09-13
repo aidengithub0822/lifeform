@@ -129,6 +129,31 @@ export interface CommunityPost {
   created_at: string;
 }
 
+export interface CommunityComment {
+  id: string;
+  post_id: string;
+  user_id: string;
+  author_username: string | null;
+  body: string;
+  created_at: string;
+}
+
+export interface PhotoLike {
+  id: string;
+  photo_id: string;
+  user_id: string;
+  created_at: string;
+}
+
+export interface PhotoComment {
+  id: string;
+  photo_id: string;
+  user_id: string;
+  author_username: string | null;
+  body: string;
+  created_at: string;
+}
+
 // Minimal Database type so @supabase/ssr's generics are happy.
 // Not a full generated schema — safe to leave loose.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

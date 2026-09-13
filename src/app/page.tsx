@@ -6,6 +6,7 @@ import HeaderMenu from "@/components/HeaderMenu";
 import ScoreBadge from "@/components/ScoreBadge";
 import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
 import ExploreGrid from "@/components/ExploreGrid";
+import RefreshOnPull from "@/components/RefreshOnPull";
 import type { FoodLog, Goal } from "@/lib/types";
 
 function todayRangeUTC() {
@@ -83,6 +84,7 @@ export default async function HomePage() {
   });
 
   return (
+    <RefreshOnPull>
     <div className="mx-auto max-w-md px-5 pt-6">
       <div className="flex items-center justify-between">
         <HeaderMenu goal={goal} />
@@ -144,6 +146,7 @@ export default async function HomePage() {
       <ExploreGrid />
       <div className="pb-8" />
     </div>
+    </RefreshOnPull>
   );
 }
 

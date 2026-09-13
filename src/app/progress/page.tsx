@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { compressImageForUpload } from "@/lib/imageUpload";
+import PullToRefresh from "@/components/PullToRefresh";
 import {
   LineChart,
   Line,
@@ -142,31 +144,37 @@ export default function ProgressPage() {
   async function uploadPhoto(file: File) {
     setUploading(true);
     setUploadError(null);
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setUploadError("Not signed in");
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setUploadError("Not signed in");
+        return;
+      }
+      const blob = await compressImageForUpload(file, 1600, 0.85);
+      const path = `${user.id}/${Date.now()}-${angle}.jpg`;
+      const { error } = await supabase.storage.from("progress-photos").upload(path, blob, {
+        contentType: "image/jpeg",
+      });
+      if (error) {
+        setUploadError(error.message);
+        return;
+      }
+      const url = supabase.storage.from("progress-photos").getPublicUrl(path).data.publicUrl;
+      const { error: insertError } = await supabase.from("progress_photos").insert({
+        user_id: user.id,
+        taken_at: new Date().toISOString().slice(0, 10),
+        photo_url: url,
+        angle,
+      });
+      if (insertError) setUploadError(insertError.message);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Couldn't process that image");
+    } finally {
       setUploading(false);
-      return;
+      await load();
     }
-    const path = `${user.id}/${Date.now()}-${angle}.jpg`;
-    const { error } = await supabase.storage.from("progress-photos").upload(path, file);
-    if (error) {
-      setUploadError(error.message);
-      setUploading(false);
-      return;
-    }
-    const url = supabase.storage.from("progress-photos").getPublicUrl(path).data.publicUrl;
-    const { error: insertError } = await supabase.from("progress_photos").insert({
-      user_id: user.id,
-      taken_at: new Date().toISOString().slice(0, 10),
-      photo_url: url,
-      angle,
-    });
-    if (insertError) setUploadError(insertError.message);
-    setUploading(false);
-    await load();
   }
 
   const chartData = measurements
@@ -176,6 +184,7 @@ export default function ProgressPage() {
   const history = [...measurements].sort((a, b) => (a.logged_at < b.logged_at ? 1 : -1));
 
   return (
+    <PullToRefresh onRefresh={load}>
     <div className="mx-auto max-w-md px-5 py-8 pb-8">
       <h1 className="text-2xl font-bold">Progress</h1>
 
@@ -345,5 +354,6 @@ export default function ProgressPage() {
         </div>
       </div>
     </div>
+    </PullToRefresh>
   );
 }

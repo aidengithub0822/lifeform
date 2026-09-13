@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
+import PullToRefresh from "@/components/PullToRefresh";
 import type { Message, Profile } from "@/lib/types";
 
 interface ConversationRow {
@@ -85,6 +86,7 @@ export default function MessagesInboxPage() {
   }, []);
 
   return (
+    <PullToRefresh onRefresh={load}>
     <div className="mx-auto max-w-md px-5 py-8">
       <Link href="/" className="text-sm font-medium text-emerald-400">
         ← Back
@@ -134,5 +136,6 @@ export default function MessagesInboxPage() {
         })}
       </div>
     </div>
+    </PullToRefresh>
   );
 }
