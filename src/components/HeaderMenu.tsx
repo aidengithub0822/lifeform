@@ -372,7 +372,7 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                     with XP from the flame panel) auto-cover a missed day.
                   </InfoCard>
                   <InfoCard title="Home screen widget">
-                    Open the flame in the top right of the diary tab for the Scriptable widget setup —
+                    Open the flame in the top right of the Home tab for the Scriptable widget setup —
                     it shows your streak on the home screen without opening the app.
                   </InfoCard>
                   <InfoCard title="Comments & Community">

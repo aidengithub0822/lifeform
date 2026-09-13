@@ -17,8 +17,8 @@ export const MAX_FREEZES = 3;
 export type FlameTier = "spark" | "flame" | "blaze" | "inferno" | "eternal";
 
 export const FLAME_TIERS: { tier: FlameTier; minStreak: number; color: string; label: string }[] = [
-  { tier: "spark", minStreak: 0, color: "#a1a1aa", label: "Spark" }, // gray ember — just starting
-  { tier: "flame", minStreak: 3, color: "#f97316", label: "Flame" }, // orange
+  { tier: "spark", minStreak: 0, color: "#a1a1aa", label: "Spark" }, // gray ember — no streak yet (day 0)
+  { tier: "flame", minStreak: 1, color: "#f97316", label: "Flame" }, // orange — lights up on day 1
   { tier: "blaze", minStreak: 14, color: "#ef4444", label: "Blaze" }, // red
   { tier: "inferno", minStreak: 45, color: "#3b82f6", label: "Inferno" }, // blue — hottest part of a real flame
   { tier: "eternal", minStreak: 100, color: "#a855f7", label: "Eternal" }, // purple/violet
