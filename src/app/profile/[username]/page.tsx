@@ -37,6 +37,7 @@ export default function ProfilePage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [followListMode, setFollowListMode] = useState<"followers" | "following" | null>(null);
   const [devColorBusy, setDevColorBusy] = useState(false);
+  const [devToolsError, setDevToolsError] = useState<string | null>(null);
   const [forceFriendBusy, setForceFriendBusy] = useState(false);
   const [forceFriendDone, setForceFriendDone] = useState(false);
 
@@ -243,13 +244,21 @@ export default function ProfilePage() {
   async function setDevColor(color: string | null) {
     if (!profile || devColorBusy) return;
     setDevColorBusy(true);
+    setDevToolsError(null);
     try {
       const res = await fetch(`/api/admin/users/${profile.user_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name_color: color }),
       });
-      if (res.ok) await load();
+      if (res.ok) {
+        await load();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setDevToolsError(body.error || `Couldn't set color (${res.status})`);
+      }
+    } catch (err) {
+      setDevToolsError(err instanceof Error ? err.message : "Couldn't set color");
     } finally {
       setDevColorBusy(false);
     }
@@ -258,6 +267,7 @@ export default function ProfilePage() {
   async function forceFriend() {
     if (!profile || forceFriendBusy) return;
     setForceFriendBusy(true);
+    setDevToolsError(null);
     try {
       const res = await fetch("/api/admin/force-friend", {
         method: "POST",
@@ -267,6 +277,9 @@ export default function ProfilePage() {
       if (res.ok) {
         setForceFriendDone(true);
         await load();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setDevToolsError(body.error || `Couldn't force-friend (${res.status})`);
       }
     } finally {
       setForceFriendBusy(false);
@@ -276,13 +289,19 @@ export default function ProfilePage() {
   async function toggleVerified() {
     if (!profile || devColorBusy) return;
     setDevColorBusy(true);
+    setDevToolsError(null);
     try {
       const res = await fetch(`/api/admin/users/${profile.user_id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ verified: !profile.verified }),
       });
-      if (res.ok) await load();
+      if (res.ok) {
+        await load();
+      } else {
+        const body = await res.json().catch(() => ({}));
+        setDevToolsError(body.error || `Couldn't update verification (${res.status})`);
+      }
     } finally {
       setDevColorBusy(false);
     }
@@ -420,16 +439,21 @@ export default function ProfilePage() {
       {isAdmin && (
         <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
           <p className="text-xs font-semibold text-zinc-300">Developer tools</p>
-          <div className="mt-2 flex items-center gap-2">
-            <button
-              onClick={toggleVerified}
-              disabled={devColorBusy}
-              className={`rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${
-                profile.verified ? "bg-blue-500 text-white" : "border border-zinc-700 text-zinc-300"
-              }`}
-            >
-              {profile.verified ? "✓ Verified" : "Verify"}
-            </button>
+
+          {/* Verification is its own standalone action — separate from name
+              color entirely, since they're unrelated grants. */}
+          <button
+            onClick={toggleVerified}
+            disabled={devColorBusy}
+            className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-sm font-semibold disabled:opacity-60 ${
+              profile.verified ? "bg-blue-500 text-white" : "border border-zinc-700 text-zinc-300"
+            }`}
+          >
+            {profile.verified ? "✓ Verified — tap to unverify" : "Grant blue checkmark"}
+          </button>
+
+          <p className="mt-3 text-[11px] font-medium text-zinc-500">Name color</p>
+          <div className="mt-1.5 flex items-center gap-2">
             <button
               onClick={() => setDevColor(null)}
               disabled={devColorBusy || !profile.name_color}
@@ -438,6 +462,7 @@ export default function ProfilePage() {
               Reset color
             </button>
           </div>
+          {devToolsError && <p className="mt-2 text-xs text-red-400">{devToolsError}</p>}
           <div className="mt-2.5 flex flex-wrap gap-2">
             {NAME_COLOR_PRESETS.map((c) => (
               <button

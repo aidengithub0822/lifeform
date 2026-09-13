@@ -29,22 +29,36 @@ export default function FollowListOverlay({
 }) {
   const supabase = createClient();
   const [rows, setRows] = useState<Row[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
+      setError(null);
       const column = mode === "followers" ? "following_id" : "follower_id";
       const otherColumn = mode === "followers" ? "follower_id" : "following_id";
-      const { data: links } = await supabase.from("follows").select(otherColumn).eq(column, userId);
+      const { data: links, error: linksError } = await supabase.from("follows").select(otherColumn).eq(column, userId);
+      if (linksError) {
+        setError(linksError.message);
+        setRows([]);
+        return;
+      }
       const ids = [...new Set((links ?? []).map((l) => (l as Record<string, string>)[otherColumn]))];
       if (ids.length === 0) {
         setRows([]);
         return;
       }
-      const { data: profiles } = await supabase
+      const { data: profiles, error: profilesError } = await supabase
         .from("profiles")
         .select("user_id, username, avatar_url, name_color, verified, rank")
         .in("user_id", ids)
         .returns<Row[]>();
+      if (profilesError) {
+        // Don't let a failure here read as "nobody follows you" — that's a
+        // very different (and misleading) message from "this query broke".
+        setError(profilesError.message);
+        setRows([]);
+        return;
+      }
       setRows(profiles ?? []);
     }
     load();
@@ -63,8 +77,9 @@ export default function FollowListOverlay({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        {rows === null && <p className="p-5 text-sm text-zinc-500">Loading...</p>}
-        {rows?.length === 0 && (
+        {rows === null && !error && <p className="p-5 text-sm text-zinc-500">Loading...</p>}
+        {error && <p className="p-8 text-center text-sm text-red-400">Couldn&apos;t load this list: {error}</p>}
+        {!error && rows?.length === 0 && (
           <p className="p-8 text-center text-sm text-zinc-500">
             {mode === "followers" ? "No followers yet." : "Not following anyone yet."}
           </p>
