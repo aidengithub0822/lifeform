@@ -20,7 +20,8 @@ export type RankTier =
   | "platinum"
   | "diamond"
   | "champion"
-  | "grand_champion";
+  | "grand_champion"
+  | "titan";
 
 export interface RankTierMeta {
   tier: RankTier;
@@ -33,20 +34,23 @@ export interface RankTierMeta {
   liftLb: number;
   /** Sustained bodyweight loss required, as % of starting weight. */
   lossPct: number;
+  /** Path (under /public) to this tier's badge artwork. */
+  badge: string;
 }
 
-// Grand Champion is pinned to the numbers actually requested: 405 bench for
-// men, 405 squat for women. The tiers below it scale down from that toward
-// a genuine beginner number, evenly enough that each tier feels earned.
+// Grand Champion was originally pinned to the numbers actually requested:
+// 405 bench for men, 405 squat for women. Titan sits above it as the true
+// ceiling tier — a number few will ever hit, by design.
 export const RANK_TIERS: RankTierMeta[] = [
-  { tier: "newbie", label: "Newbie", color: null, minAccountAgeDays: 0, minXp: 0, liftLb: 0, lossPct: 0 },
-  { tier: "bronze", label: "Bronze", color: "#92400e", minAccountAgeDays: 14, minXp: 200, liftLb: 135, lossPct: 5 },
-  { tier: "silver", label: "Silver", color: "#9ca3af", minAccountAgeDays: 30, minXp: 500, liftLb: 185, lossPct: 10 },
-  { tier: "gold", label: "Gold", color: "#eab308", minAccountAgeDays: 60, minXp: 1000, liftLb: 225, lossPct: 15 },
-  { tier: "platinum", label: "Platinum", color: "#7dd3fc", minAccountAgeDays: 120, minXp: 2000, liftLb: 275, lossPct: 20 },
-  { tier: "diamond", label: "Diamond", color: "#1d4ed8", minAccountAgeDays: 180, minXp: 3500, liftLb: 315, lossPct: 25 },
-  { tier: "champion", label: "Champion", color: "#9333ea", minAccountAgeDays: 270, minXp: 5000, liftLb: 365, lossPct: 30 },
-  { tier: "grand_champion", label: "Grand Champion", color: "#ec4899", minAccountAgeDays: 365, minXp: 8000, liftLb: 405, lossPct: 35 },
+  { tier: "newbie", label: "Newbie", color: null, minAccountAgeDays: 0, minXp: 0, liftLb: 0, lossPct: 0, badge: "/badges/newbie.webp" },
+  { tier: "bronze", label: "Bronze", color: "#92400e", minAccountAgeDays: 14, minXp: 200, liftLb: 135, lossPct: 5, badge: "/badges/bronze.webp" },
+  { tier: "silver", label: "Silver", color: "#9ca3af", minAccountAgeDays: 30, minXp: 500, liftLb: 185, lossPct: 10, badge: "/badges/silver.webp" },
+  { tier: "gold", label: "Gold", color: "#eab308", minAccountAgeDays: 60, minXp: 1000, liftLb: 225, lossPct: 15, badge: "/badges/gold.webp" },
+  { tier: "platinum", label: "Platinum", color: "#7dd3fc", minAccountAgeDays: 120, minXp: 2000, liftLb: 275, lossPct: 20, badge: "/badges/platinum.webp" },
+  { tier: "diamond", label: "Diamond", color: "#1d4ed8", minAccountAgeDays: 180, minXp: 3500, liftLb: 315, lossPct: 25, badge: "/badges/diamond.webp" },
+  { tier: "champion", label: "Champion", color: "#9333ea", minAccountAgeDays: 270, minXp: 5000, liftLb: 365, lossPct: 30, badge: "/badges/champion.webp" },
+  { tier: "grand_champion", label: "Grand Champion", color: "#ec4899", minAccountAgeDays: 365, minXp: 8000, liftLb: 405, lossPct: 35, badge: "/badges/grand-champion.webp" },
+  { tier: "titan", label: "Titan", color: "#f8fafc", minAccountAgeDays: 545, minXp: 12000, liftLb: 455, lossPct: 40, badge: "/badges/titan.webp" },
 ];
 
 export function rankMeta(tier: string | null | undefined): RankTierMeta {

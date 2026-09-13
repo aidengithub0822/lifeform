@@ -346,12 +346,13 @@ export default function FitnessPage() {
         <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
-            <span
-              className="rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black"
-              style={{ background: rankMeta(selectedRank.tier).color ?? "#3f3f46", color: rankMeta(selectedRank.tier).color ? "#000" : "#e4e4e7" }}
-            >
-              {rankMeta(selectedRank.tier).label}
-            </span>
+            <div className="flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={rankMeta(selectedRank.tier).badge} alt="" className="h-7 w-7" />
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: rankMeta(selectedRank.tier).color ?? "#a1a1aa" }}>
+                {rankMeta(selectedRank.tier).label}
+              </span>
+            </div>
           </div>
           {selectedRank.bestLift ? (
             <p className="mt-1.5 text-xs text-[#a1a1aa]">

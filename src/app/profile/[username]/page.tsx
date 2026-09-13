@@ -376,7 +376,9 @@ export default function ProfilePage() {
         <UserName username={profile.username} color={profile.name_color} verified={profile.verified} rank={profile.rank} className="text-base font-bold" />
       </h1>
       {profile.rank !== "newbie" && (
-        <p className="mt-0.5 text-xs font-semibold" style={{ color: rankMeta(profile.rank).color ?? undefined }}>
+        <p className="mt-0.5 flex items-center gap-1 text-xs font-semibold" style={{ color: rankMeta(profile.rank).color ?? undefined }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={rankMeta(profile.rank).badge} alt="" className="h-4 w-4" />
           {rankMeta(profile.rank).label} rank
         </p>
       )}

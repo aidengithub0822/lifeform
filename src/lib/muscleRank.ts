@@ -28,7 +28,7 @@ const KIND_BASELINE: Record<ExerciseKind, number> = {
 
 // Normalized-score cutoff to reach each tier in RANK_TIERS, index-aligned
 // (RANK_TIERS[0] is "newbie" and always the floor).
-const SCORE_THRESHOLDS = [0, 0.35, 0.55, 0.75, 0.95, 1.15, 1.35, 1.55];
+const SCORE_THRESHOLDS = [0, 0.35, 0.55, 0.75, 0.95, 1.15, 1.35, 1.55, 1.8];
 
 const DEFAULT_BODYWEIGHT_LB = 170;
 const MAX_NEAR_MAX_REPS = 8;
