@@ -258,3 +258,83 @@ export function currentDay(splitKey: SplitDefinition["key"], dayIndex: number): 
   const split = SPLITS[splitKey];
   return split.days[dayIndex % split.days.length];
 }
+
+// Extra exercises beyond what appears in a specific split day — mostly
+// machine/cable/dumbbell variants of the same movement patterns, so the log
+// screen's picker has real options when someone's gym doesn't have a
+// barbell free, or they just want to swap the exact movement they did.
+const EXTRA_EXERCISES: SplitExercise[] = [
+  ex("Dumbbell bench press", "heavy_compound", 4, "6-8", ["chest", "shoulders", "triceps"]),
+  ex("Machine chest press", "moderate_compound", 3, "8-12", ["chest", "triceps"]),
+  ex("Decline bench press", "heavy_compound", 3, "6-8", ["chest", "triceps"]),
+  ex("Pec deck", "isolation", 3, "12-15", ["chest"]),
+  ex("T-bar row", "moderate_compound", 3, "8-10", ["back", "biceps"]),
+  ex("Chest-supported row", "moderate_compound", 3, "8-12", ["back", "biceps"]),
+  ex("Single-arm dumbbell row", "moderate_compound", 3, "8-10 each side", ["back", "biceps"]),
+  ex("Straight-arm pulldown", "isolation", 3, "12-15", ["back"]),
+  ex("Dumbbell lateral raise", "isolation", 4, "12-15", ["shoulders"]),
+  ex("Machine shoulder press", "moderate_compound", 3, "8-10", ["shoulders", "triceps"]),
+  ex("Cable rear delt row", "isolation", 3, "12-15", ["shoulders", "back"]),
+  ex("Preacher curl", "isolation", 3, "10-12", ["biceps"]),
+  ex("Cable curl", "isolation", 3, "12-15", ["biceps"]),
+  ex("Concentration curl", "isolation", 3, "12-15", ["biceps"]),
+  ex("Skull crushers", "isolation", 3, "10-12", ["triceps"]),
+  ex("Dumbbell tricep kickback", "isolation", 3, "12-15", ["triceps"]),
+  ex("Bulgarian split squat", "moderate_compound", 3, "8-10 each leg", ["quads", "glutes"]),
+  ex("Hack squat", "heavy_compound", 3, "6-10", ["quads", "glutes"]),
+  ex("Glute bridge", "isolation", 3, "12-15", ["glutes"]),
+  ex("Cable pull-through", "isolation", 3, "12-15", ["glutes", "hamstrings"]),
+  ex("Lying leg curl", "isolation", 3, "10-12", ["hamstrings"]),
+  ex("Sumo deadlift", "heavy_compound", 3, "4-6", ["hamstrings", "glutes", "back"]),
+  ex("Calf press on leg press", "isolation", 4, "12-15", ["calves"]),
+  ex("Weighted plank", "core", 3, "30-60s", ["abs"]),
+  ex("Cable woodchopper", "core", 3, "12-15 each side", ["abs"]),
+  ex("Ab wheel rollout", "core", 3, "8-12", ["abs"]),
+];
+
+/** Every exercise across every split plus the extras, deduplicated by name — the source list for the lift-logging picker. */
+export const ALL_EXERCISES: SplitExercise[] = (() => {
+  const byName = new Map<string, SplitExercise>();
+  for (const split of Object.values(SPLITS)) {
+    for (const day of split.days) {
+      for (const exercise of day.exercises) byName.set(exercise.name, exercise);
+    }
+  }
+  for (const exercise of EXTRA_EXERCISES) {
+    if (!byName.has(exercise.name)) byName.set(exercise.name, exercise);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+})();
+
+export const MUSCLE_LABELS: Record<MuscleGroup, string> = {
+  chest: "Chest",
+  shoulders: "Shoulders",
+  biceps: "Biceps",
+  triceps: "Triceps",
+  back: "Back",
+  traps: "Traps",
+  abs: "Abs",
+  glutes: "Glutes",
+  quads: "Quads",
+  hamstrings: "Hamstrings",
+  calves: "Calves",
+};
+
+export const MUSCLE_GROUPS: MuscleGroup[] = [
+  "chest",
+  "back",
+  "shoulders",
+  "traps",
+  "biceps",
+  "triceps",
+  "abs",
+  "glutes",
+  "quads",
+  "hamstrings",
+  "calves",
+];
+
+/** Exercises tagged to a given muscle, for browsing the picker by muscle group. */
+export function exercisesForMuscle(muscle: MuscleGroup): SplitExercise[] {
+  return ALL_EXERCISES.filter((e) => e.muscles.includes(muscle));
+}

@@ -3,11 +3,121 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CATEGORIES, WORKOUTS, type MuscleCategory } from "@/lib/workoutCatalog";
-import { SPLITS, currentDay } from "@/lib/trainingSplits";
-import type { TrainingPlan } from "@/lib/types";
+import {
+  SPLITS,
+  currentDay,
+  ALL_EXERCISES,
+  MUSCLE_GROUPS,
+  MUSCLE_LABELS,
+  exercisesForMuscle,
+  type SplitExercise,
+  type MuscleGroup,
+} from "@/lib/trainingSplits";
+import type { TrainingPlan, Lift } from "@/lib/types";
 import XpSparkToast from "@/components/XpSparkToast";
 
 type Sex = "male" | "female";
+
+// Inline set-logging form shown under a tapped exercise row. Kept as its own
+// component so each row owns its own weight/reps/sets draft state instead of
+// one shared draft that would leak between rows.
+function LogSetForm({
+  exercise,
+  onLogged,
+}: {
+  exercise: SplitExercise;
+  onLogged: (lift: Lift) => void;
+}) {
+  const [weight, setWeight] = useState("");
+  const [reps, setReps] = useState("");
+  const [sets, setSets] = useState(String(exercise.sets));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  async function submit() {
+    setError(null);
+    const weightLb = Number(weight);
+    const repsN = Number(reps);
+    const setsN = Number(sets);
+    if (!Number.isFinite(weightLb) || weightLb < 0) return setError("Enter a valid weight");
+    if (!Number.isInteger(repsN) || repsN <= 0) return setError("Enter a valid rep count");
+    if (!Number.isInteger(setsN) || setsN <= 0) return setError("Enter a valid set count");
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/lifts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ lift_name: exercise.name, weight_lb: weightLb, reps: repsN, sets: setsN }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "Couldn't save that lift");
+        return;
+      }
+      setSaved(true);
+      if (body.lift) onLogged(body.lift as Lift);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (saved) {
+    return (
+      <div className="mt-2 flex items-center gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs font-medium text-emerald-400">
+        Logged {weight} lb × {reps} for {sets} {Number(sets) === 1 ? "set" : "sets"} ✓
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border border-[#1f1f23] bg-[#0d0d0f] p-3">
+      <div className="grid grid-cols-3 gap-2">
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Weight (lb)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            placeholder="135"
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Reps</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            placeholder="8"
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Sets</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={sets}
+            onChange={(e) => setSets(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      <button
+        onClick={submit}
+        disabled={saving}
+        className="mt-2.5 w-full rounded-lg bg-emerald-500 py-2 text-xs font-semibold text-black disabled:opacity-60"
+      >
+        {saving ? "Saving..." : "Log set"}
+      </button>
+    </div>
+  );
+}
 
 export default function FitnessPage() {
   const [sex, setSex] = useState<Sex>("male");
@@ -17,9 +127,13 @@ export default function FitnessPage() {
   const [sparkXp, setSparkXp] = useState<number | null>(null);
   const [plan, setPlan] = useState<TrainingPlan | null>(null);
   const [planLoading, setPlanLoading] = useState(true);
+  const [openExercise, setOpenExercise] = useState<string | null>(null);
+  const [loggedNames, setLoggedNames] = useState<Set<string>>(new Set());
+  const [pickerMuscle, setPickerMuscle] = useState<MuscleGroup | null>(null);
+  const [showPicker, setShowPicker] = useState(false);
 
   useEffect(() => {
-     
+
     (async () => {
       const res = await fetch("/api/training-plan");
       if (res.ok) {
@@ -32,6 +146,11 @@ export default function FitnessPage() {
 
   const split = plan ? SPLITS[plan.split_type] : null;
   const day = plan ? currentDay(plan.split_type, plan.day_index) : null;
+
+  function markLogged(exerciseName: string) {
+    setLoggedNames((prev) => new Set(prev).add(exerciseName));
+    setOpenExercise(null);
+  }
 
   async function logWorkout() {
     setLogging(true);
@@ -49,6 +168,8 @@ export default function FitnessPage() {
       setLogging(false);
     }
   }
+
+  const pickerExercises: SplitExercise[] = pickerMuscle ? exercisesForMuscle(pickerMuscle) : ALL_EXERCISES;
 
   return (
     <div className="mx-auto max-w-md px-5 py-8">
@@ -68,18 +189,94 @@ export default function FitnessPage() {
             </span>
           </div>
           <div className="mt-3">
-            {day.exercises.map((exercise) => (
-              <div key={exercise.name} className="flex items-center gap-3 border-b border-[#1a1a1d] py-3">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
-                  <p className="mt-0.5 text-xs text-[#71717a]">
-                    {exercise.sets} sets · {exercise.repRange} reps
-                  </p>
+            {day.exercises.map((exercise) => {
+              const isOpen = openExercise === exercise.name;
+              const isLogged = loggedNames.has(exercise.name);
+              return (
+                <div key={exercise.name} className="border-b border-[#1a1a1d] py-3">
+                  <button
+                    onClick={() => setOpenExercise(isOpen ? null : exercise.name)}
+                    className="flex w-full items-center gap-3 text-left"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
+                      <p className="mt-0.5 text-xs text-[#71717a]">
+                        {exercise.sets} sets · {exercise.repRange} reps
+                      </p>
+                    </div>
+                    {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
+                    <span className="shrink-0 text-[11px] capitalize text-[#52525b]">{exercise.muscles[0]}</span>
+                    <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
+                  </button>
+                  {isOpen && (
+                    <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />
+                  )}
                 </div>
-                <span className="shrink-0 text-[11px] capitalize text-[#52525b]">{exercise.muscles[0]}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
+
+          <button
+            onClick={() => setShowPicker((v) => !v)}
+            className="mt-3 flex w-full items-center justify-between rounded-xl border border-dashed border-[#27272a] px-3.5 py-2.5 text-left"
+          >
+            <span className="text-xs font-medium text-[#a1a1aa]">
+              {showPicker ? "Hide exercise list" : "Log a different exercise"}
+            </span>
+            <span className="text-[#52525b]">{showPicker ? "︿" : "﹀"}</span>
+          </button>
+
+          {showPicker && (
+            <div className="mt-2.5 rounded-2xl border border-[#1f1f23] bg-[#0d0d0f] p-3">
+              <div className="flex gap-1.5 overflow-x-auto pb-1">
+                <button
+                  onClick={() => setPickerMuscle(null)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                    pickerMuscle === null ? "bg-emerald-500 text-black" : "bg-[#18181b] text-[#a1a1aa]"
+                  }`}
+                >
+                  All
+                </button>
+                {MUSCLE_GROUPS.map((m) => (
+                  <button
+                    key={m}
+                    onClick={() => setPickerMuscle(m)}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
+                      pickerMuscle === m ? "bg-emerald-500 text-black" : "bg-[#18181b] text-[#a1a1aa]"
+                    }`}
+                  >
+                    {MUSCLE_LABELS[m]}
+                  </button>
+                ))}
+              </div>
+              <div className="mt-2 max-h-72 overflow-y-auto">
+                {pickerExercises.map((exercise) => {
+                  const isOpen = openExercise === `picker:${exercise.name}`;
+                  const isLogged = loggedNames.has(exercise.name);
+                  return (
+                    <div key={exercise.name} className="border-b border-[#1a1a1d] py-2.5 last:border-0">
+                      <button
+                        onClick={() => setOpenExercise(isOpen ? null : `picker:${exercise.name}`)}
+                        className="flex w-full items-center gap-2 text-left"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-medium text-[#e4e4e7]">{exercise.name}</p>
+                          <p className="mt-0.5 text-[11px] text-[#71717a]">
+                            {exercise.sets} sets · {exercise.repRange} reps
+                          </p>
+                        </div>
+                        {isLogged && <span className="shrink-0 text-[11px] font-medium text-emerald-400">✓</span>}
+                        <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
+                      </button>
+                      {isOpen && (
+                        <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
