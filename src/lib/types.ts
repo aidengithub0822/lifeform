@@ -101,6 +101,11 @@ export interface ProgressPhoto {
   photo_url: string;
   angle: "front" | "side" | "back";
   notes: string | null;
+  /** 0-100 AI-assessed leanness/definition, comparable across this user's
+   * own photos of the same angle over time — see /api/progress-photos/analyze. */
+  ai_leanness_score: number | null;
+  ai_summary: string | null;
+  ai_analyzed_at: string | null;
 }
 
 export interface Feedback {

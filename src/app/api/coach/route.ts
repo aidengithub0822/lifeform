@@ -3,8 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { SPLITS, currentDay, MUSCLE_GROUPS, MUSCLE_LABELS } from "@/lib/trainingSplits";
 import { computeAllMuscleRanks, type LiftForRank } from "@/lib/muscleRank";
-import { rankMeta } from "@/lib/rank";
-import type { Goal, Measurement, TrainingPlan, Lift } from "@/lib/types";
+import { rankMeta, validatedPhotoLeanGainPct } from "@/lib/rank";
+import type { Goal, Measurement, TrainingPlan, Lift, ProgressPhoto } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
@@ -52,6 +52,41 @@ function liftsSummary(lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" 
   return `Recent logged lifts (most recent first per exercise):\n${lines.join("\n")}`;
 }
 
+function progressPhotosSummary(photos: Pick<ProgressPhoto, "taken_at" | "angle" | "ai_leanness_score" | "ai_summary">[], goal: Goal | null): string {
+  if (photos.length === 0) {
+    return "They haven't uploaded any progress photos in the Progress tab yet — for a cutting goal especially, encourage them to take one every week or two from the same angle, since that's the most direct way to track visible change.";
+  }
+  const analyzed = photos.filter((p) => p.ai_leanness_score != null);
+  if (analyzed.length === 0) {
+    return "They've uploaded progress photos but none are analyzed yet — nothing to reference from them yet.";
+  }
+  const byAngle = new Map<string, typeof analyzed>();
+  for (const p of analyzed) {
+    const arr = byAngle.get(p.angle) ?? [];
+    arr.push(p);
+    byAngle.set(p.angle, arr);
+  }
+  const lines: string[] = [];
+  for (const [angle, arr] of byAngle) {
+    const sorted = [...arr].sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+    const latest = sorted[sorted.length - 1];
+    const first = sorted[0];
+    const trend =
+      sorted.length > 1
+        ? ` (AI leanness score trend: ${first.ai_leanness_score} on ${first.taken_at} -> ${latest.ai_leanness_score} on ${latest.taken_at})`
+        : "";
+    lines.push(`${angle}: latest AI leanness score ${latest.ai_leanness_score}/100 on ${latest.taken_at}${trend}${latest.ai_summary ? ` — "${latest.ai_summary}"` : ""}`);
+  }
+  const gainPct = validatedPhotoLeanGainPct(analyzed.map((p) => ({ taken_at: p.taken_at, ai_leanness_score: p.ai_leanness_score })));
+  const cutNote =
+    goal?.phase === "cut"
+      ? gainPct > 0
+        ? ` Their AI-validated leanness gain from photos is currently ${gainPct.toFixed(1)}% — this (or their scale weight loss %, whichever is higher) is what's actually driving their rank-up progress on a cutting goal, since visible leanness from photos is a more honest signal than the scale alone.`
+        : " They're on a cutting goal but don't yet have enough consistently-spaced analyzed photos to validate a leanness trend for ranking purposes — encourage regular same-angle photos."
+      : "";
+  return `Progress photo AI analysis (from the Progress tab, one leanness/definition score 0-100 per photo, scored by AI vision and comparable across their own photos of the same angle over time — not a body-fat-percentage estimate): ${lines.join("; ")}.${cutNote} Feel free to reference this directly when they ask how their physique/cut is progressing, not just the scale.`;
+}
+
 function muscleRankSummary(allLifts: LiftForRank[], bodyweightLb: number | null): string {
   const ranks = computeAllMuscleRanks(MUSCLE_GROUPS, allLifts, bodyweightLb);
   const trained = ranks.filter((r) => r.tier !== "newbie" || r.totalSetsLogged > 0);
@@ -83,7 +118,8 @@ function systemPrompt(
   measurements: Pick<Measurement, "logged_at" | "weight_lb">[],
   plan: TrainingPlan | null,
   lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[],
-  allLifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]
+  allLifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[],
+  photos: Pick<ProgressPhoto, "taken_at" | "angle" | "ai_leanness_score" | "ai_summary">[]
 ): string {
   const goalLine = goal
     ? `Their current goal: ${goal.phase} phase, ~${goal.calorie_target} kcal/day, ~${goal.protein_target_g}g protein/day${
@@ -103,6 +139,8 @@ ${liftsSummary(lifts)}
 
 ${muscleRankSummary(allLifts, plan?.ideal_weight_lb ?? measurements.filter((m) => m.weight_lb != null).slice(-1)[0]?.weight_lb ?? null)}
 
+${progressPhotosSummary(photos, goal)}
+
 When the user asks about their progress, reference this actual logged data (trend direction, how it compares to their goal phase, their real lift numbers and split) rather than speaking generally. If they haven't logged anything yet, encourage them to log a weight entry in the Progress tab or a set in the Fitness tab so you can track it together.
 
 ## How you coach lifting (this is the part people notice most, so follow it closely)
@@ -116,7 +154,7 @@ You are a science-based hypertrophy and strength coach in the same tradition as 
 
 Beyond rep ranges: emphasize a full stretch and controlled eccentric (tension at length matters at least as much as total volume), progressive overload week to week (more weight, more reps, or better form/control at the same load — not just showing up), and proximity to failure as the real driver of hypertrophy rather than an arbitrary total set count. When someone reports a plateau, look for whether they're actually approaching failure, whether they're progressively overloading, and whether exercise selection is hitting the muscle's strength curve well — not just telling them to "add a set." Feel free to reference how their own logged lifts (above) are trending when giving this kind of feedback.
 
-Your job is strictly limited to helping this user with: nutrition and diet questions, food choices and macros, their calorie/protein/goal targets and progress, workouts and training, recovery, general fitness/health habits, and how to use this app's features (scanning food, logging, recipes, progress tracking, streaks, the Train split, the Fitness lift log, and the per-muscle rank map).
+Your job is strictly limited to helping this user with: nutrition and diet questions, food choices and macros, their calorie/protein/goal targets and progress, workouts and training, recovery, general fitness/health habits, and how to use this app's features (scanning food, logging, recipes, progress tracking including progress photos, streaks, the Train split, the Fitness lift log, and the per-muscle and overall rank systems).
 
 If the user asks about anything outside that scope — general knowledge, current events, coding, unrelated personal advice, or any other off-topic request — politely decline in 1 sentence and steer the conversation back to fitness/nutrition. Do not answer off-topic questions even if asked persistently or if the user claims a special exception. You are not a general-purpose assistant in this context.
 
@@ -144,32 +182,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No message provided" }, { status: 400 });
   }
 
-  const [{ data: goal }, { data: measurements }, { data: plan }, { data: lifts }, { data: allLifts }] = await Promise.all([
-    supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
-    supabase
-      .from("measurements")
-      .select("logged_at, weight_lb")
-      .eq("user_id", user.id)
-      .order("logged_at", { ascending: true })
-      .returns<Pick<Measurement, "logged_at" | "weight_lb">[]>(),
-    supabase.from("training_plans").select("*").eq("user_id", user.id).maybeSingle(),
-    supabase
-      .from("lifts")
-      .select("logged_at, lift_name, weight_lb, reps, sets")
-      .eq("user_id", user.id)
-      .order("logged_at", { ascending: false })
-      .limit(40)
-      .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
-    // Full history (not just the recent-40 above) — the per-muscle rank's
-    // qualifying-day counting needs every logged day, not a recent slice.
-    supabase
-      .from("lifts")
-      .select("logged_at, lift_name, weight_lb, reps, sets")
-      .eq("user_id", user.id)
-      .order("logged_at", { ascending: true })
-      .limit(3000)
-      .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
-  ]);
+  const [{ data: goal }, { data: measurements }, { data: plan }, { data: lifts }, { data: allLifts }, { data: photos }] =
+    await Promise.all([
+      supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
+      supabase
+        .from("measurements")
+        .select("logged_at, weight_lb")
+        .eq("user_id", user.id)
+        .order("logged_at", { ascending: true })
+        .returns<Pick<Measurement, "logged_at" | "weight_lb">[]>(),
+      supabase.from("training_plans").select("*").eq("user_id", user.id).maybeSingle(),
+      supabase
+        .from("lifts")
+        .select("logged_at, lift_name, weight_lb, reps, sets")
+        .eq("user_id", user.id)
+        .order("logged_at", { ascending: false })
+        .limit(40)
+        .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
+      // Full history (not just the recent-40 above) — the per-muscle rank's
+      // qualifying-day counting needs every logged day, not a recent slice.
+      supabase
+        .from("lifts")
+        .select("logged_at, lift_name, weight_lb, reps, sets")
+        .eq("user_id", user.id)
+        .order("logged_at", { ascending: true })
+        .limit(3000)
+        .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
+      supabase
+        .from("progress_photos")
+        .select("taken_at, angle, ai_leanness_score, ai_summary")
+        .eq("user_id", user.id)
+        .order("taken_at", { ascending: true })
+        .returns<Pick<ProgressPhoto, "taken_at" | "angle" | "ai_leanness_score" | "ai_summary">[]>(),
+    ]);
 
   try {
     const response = await anthropic.messages.create({
@@ -180,7 +225,8 @@ export async function POST(request: Request) {
         measurements ?? [],
         plan as TrainingPlan | null,
         lifts ?? [],
-        allLifts ?? []
+        allLifts ?? [],
+        photos ?? []
       ),
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     });

@@ -121,6 +121,17 @@ create table if not exists public.progress_photos (
 );
 create index if not exists progress_photos_user_time_idx on public.progress_photos (user_id, taken_at desc);
 
+-- AI vision analysis, run once right after upload (see
+-- /api/progress-photos/analyze) so Coach and the rank engine can both read
+-- a stable, already-computed assessment instead of re-analyzing the image
+-- every time. ai_leanness_score is 0-100 (higher = leaner/more defined),
+-- directly comparable across a user's own photos of the same angle over
+-- time — NOT a body-fat-percentage estimate, since vision models can't
+-- reliably produce one; it's an ordinal signal, not a lab measurement.
+alter table public.progress_photos add column if not exists ai_leanness_score int check (ai_leanness_score between 0 and 100);
+alter table public.progress_photos add column if not exists ai_summary text;
+alter table public.progress_photos add column if not exists ai_analyzed_at timestamptz;
+
 -- Simple daily "I trained today" check-in, separate from detailed lift logging,
 -- used to compute the gym-frequency side of the streak.
 create table if not exists public.workouts (

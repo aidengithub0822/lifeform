@@ -8,6 +8,7 @@ import {
   isBenchName,
   isSquatName,
   validatedWeightLossPct,
+  validatedPhotoLeanGainPct,
   rankMeta,
   xpLevel,
 } from "@/lib/rank";
@@ -23,19 +24,23 @@ export async function GET() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const [{ data: profile }, { data: goal }, { data: streak }, { data: lifts }, { data: measurements }] =
+  const [{ data: profile }, { data: goal }, { data: streak }, { data: lifts }, { data: measurements }, { data: photos }] =
     await Promise.all([
       supabase.from("profiles").select("created_at").eq("user_id", user.id).maybeSingle(),
       supabase.from("goals").select("sex").eq("user_id", user.id).maybeSingle(),
       supabase.from("streaks").select("xp").eq("user_id", user.id).maybeSingle(),
       supabase.from("lifts").select("logged_at, lift_name, weight_lb, reps").eq("user_id", user.id),
       supabase.from("measurements").select("logged_at, weight_lb").eq("user_id", user.id),
+      supabase.from("progress_photos").select("taken_at, ai_leanness_score").eq("user_id", user.id),
     ]);
 
   const liftRows = (lifts ?? []) as { logged_at: string; lift_name: string; weight_lb: number; reps: number }[];
   const benchMaxLb = bestValidatedMax(liftRows.filter((r) => isBenchName(r.lift_name)));
   const squatMaxLb = bestValidatedMax(liftRows.filter((r) => isSquatName(r.lift_name)));
   const weightLossPct = validatedWeightLossPct((measurements ?? []) as { logged_at: string; weight_lb: number | null }[]);
+  const photoLeanGainPct = validatedPhotoLeanGainPct(
+    (photos ?? []) as { taken_at: string; ai_leanness_score: number | null }[]
+  );
   const xp = streak?.xp ?? 0;
 
   const input = {
@@ -45,6 +50,7 @@ export async function GET() {
     benchMaxLb,
     squatMaxLb,
     weightLossPct,
+    photoLeanGainPct,
   };
   const { tier, nextTier, progress, limitingFactor } = computeRankProgress(input);
   const meta = rankMeta(tier);
@@ -78,19 +84,23 @@ export async function POST() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const [{ data: profile }, { data: goal }, { data: streak }, { data: lifts }, { data: measurements }] =
+  const [{ data: profile }, { data: goal }, { data: streak }, { data: lifts }, { data: measurements }, { data: photos }] =
     await Promise.all([
       supabase.from("profiles").select("created_at").eq("user_id", user.id).maybeSingle(),
       supabase.from("goals").select("sex").eq("user_id", user.id).maybeSingle(),
       supabase.from("streaks").select("xp").eq("user_id", user.id).maybeSingle(),
       supabase.from("lifts").select("logged_at, lift_name, weight_lb, reps").eq("user_id", user.id),
       supabase.from("measurements").select("logged_at, weight_lb").eq("user_id", user.id),
+      supabase.from("progress_photos").select("taken_at, ai_leanness_score").eq("user_id", user.id),
     ]);
 
   const liftRows = (lifts ?? []) as { logged_at: string; lift_name: string; weight_lb: number; reps: number }[];
   const benchMaxLb = bestValidatedMax(liftRows.filter((r) => isBenchName(r.lift_name)));
   const squatMaxLb = bestValidatedMax(liftRows.filter((r) => isSquatName(r.lift_name)));
   const weightLossPct = validatedWeightLossPct((measurements ?? []) as { logged_at: string; weight_lb: number | null }[]);
+  const photoLeanGainPct = validatedPhotoLeanGainPct(
+    (photos ?? []) as { taken_at: string; ai_leanness_score: number | null }[]
+  );
 
   const tier = computeRank({
     accountCreatedAt: profile?.created_at ?? new Date().toISOString(),
@@ -99,6 +109,7 @@ export async function POST() {
     benchMaxLb,
     squatMaxLb,
     weightLossPct,
+    photoLeanGainPct,
   });
 
   const admin = createAdminClient();

@@ -134,6 +134,48 @@ export function validatedWeightLossPct(rows: WeightRow[]): number {
   return (clampedLoss / startAvg) * 100;
 }
 
+export interface PhotoLeanRow {
+  taken_at: string;
+  ai_leanness_score: number | null;
+}
+
+const MIN_ANALYZED_PHOTOS = 3; // fewer required than scale measurements — photos are naturally logged less often
+const MIN_PHOTO_SPAN_DAYS = 30;
+const MAX_PLAUSIBLE_LEAN_GAIN_PER_WEEK = 3; // score points/week, same "generous but not infinite" spirit as the weight cap
+
+/**
+ * Validated leanness gain from AI-scored progress photos, expressed on the
+ * same 0-100-ish scale as validatedWeightLossPct's percentage so it can
+ * plug into the same "OR" gate in computeRank. This is the signal a
+ * cutting-goal user's rank should mostly move on: the user's own words were
+ * that "most of the weight loss difference is determined by the progress
+ * pictures they are taking" — the scale can be noisy (water weight, time of
+ * day), but a sustained increase in AI-assessed definition across a user's
+ * own photos of the same angle is a more direct read on visible cutting
+ * progress. Same anti-cheat shape as the weight-loss validator: needs a
+ * minimum number of analyzed photos spanning real time, averages the
+ * edges so one flattering or unflattering photo can't swing it, and caps
+ * the counted gain at a plausible rate.
+ */
+export function validatedPhotoLeanGainPct(rows: PhotoLeanRow[]): number {
+  const sorted = rows
+    .filter((r): r is { taken_at: string; ai_leanness_score: number } => typeof r.ai_leanness_score === "number")
+    .sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+  if (sorted.length < MIN_ANALYZED_PHOTOS) return 0;
+
+  const spanDays = daysBetween(sorted[0].taken_at, sorted[sorted.length - 1].taken_at);
+  if (spanDays < MIN_PHOTO_SPAN_DAYS) return 0;
+
+  const edgeCount = Math.min(2, Math.floor(sorted.length / 2) || 1);
+  const startAvg = average(sorted.slice(0, edgeCount).map((r) => r.ai_leanness_score));
+  const endAvg = average(sorted.slice(-edgeCount).map((r) => r.ai_leanness_score));
+  const rawGain = endAvg - startAvg;
+  if (rawGain <= 0) return 0;
+
+  const maxPlausibleGain = (spanDays / 7) * MAX_PLAUSIBLE_LEAN_GAIN_PER_WEEK;
+  return Math.min(rawGain, maxPlausibleGain);
+}
+
 export function daysBetween(a: string, b: string): number {
   const ms = new Date(b).getTime() - new Date(a).getTime();
   return Math.max(0, Math.floor(ms / 86400000));
@@ -150,13 +192,20 @@ export interface ComputeRankInput {
   benchMaxLb: number;
   squatMaxLb: number;
   weightLossPct: number;
+  /** From validatedPhotoLeanGainPct — AI-assessed leanness gain from progress
+   * photos, on the same scale as weightLossPct. Optional so existing callers
+   * that don't yet pass it still work; defaults to 0 (no photo signal). */
+  photoLeanGainPct?: number;
 }
 
 /**
  * Highest tier whose time/XP gate AND (strength OR weight-loss) gate both
  * pass. Men are judged on bench, women on squat, per the spec; anyone whose
  * sex isn't set yet gets whichever of the two is more favorable so a missing
- * profile field never blocks ranking up.
+ * profile field never blocks ranking up. The "weight-loss" side of the gate
+ * is really "visible cutting progress" — whichever is higher of the scale
+ * trend or the AI photo-leanness trend counts, since a cutting-goal user's
+ * progress photos are often the more honest signal than a noisy scale.
  */
 export function computeRank(input: ComputeRankInput): RankTier {
   const accountAgeDays = daysBetween(input.accountCreatedAt, new Date().toISOString());
@@ -167,12 +216,13 @@ export function computeRank(input: ComputeRankInput): RankTier {
       : sex === "female" || sex === "woman" || sex === "f"
         ? input.squatMaxLb
         : Math.max(input.benchMaxLb, input.squatMaxLb);
+  const cuttingProgressPct = Math.max(input.weightLossPct, input.photoLeanGainPct ?? 0);
 
   let best: RankTier = "newbie";
   for (const t of RANK_TIERS) {
     if (t.tier === "newbie") continue;
     const timeOk = accountAgeDays >= t.minAccountAgeDays && input.xp >= t.minXp;
-    const changeOk = strengthLb >= t.liftLb || input.weightLossPct >= t.lossPct;
+    const changeOk = strengthLb >= t.liftLb || cuttingProgressPct >= t.lossPct;
     if (timeOk && changeOk) best = t.tier;
   }
   return best;
@@ -221,10 +271,11 @@ export function computeRankProgress(input: ComputeRankInput): RankProgress {
         ? input.squatMaxLb
         : Math.max(input.benchMaxLb, input.squatMaxLb);
 
+  const cuttingProgressPct = Math.max(input.weightLossPct, input.photoLeanGainPct ?? 0);
   const timeProgress = next.minAccountAgeDays === 0 ? 1 : Math.min(1, accountAgeDays / next.minAccountAgeDays);
   const xpProgress = next.minXp === 0 ? 1 : Math.min(1, input.xp / next.minXp);
   const strengthProgress = next.liftLb === 0 ? 1 : Math.min(1, strengthLb / next.liftLb);
-  const lossProgress = next.lossPct === 0 ? 1 : Math.min(1, input.weightLossPct / next.lossPct);
+  const lossProgress = next.lossPct === 0 ? 1 : Math.min(1, cuttingProgressPct / next.lossPct);
   const changeProgress = Math.max(strengthProgress, lossProgress);
 
   const progress = Math.min(timeProgress, xpProgress, changeProgress);

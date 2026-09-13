@@ -49,6 +49,7 @@ export default function ProgressPage() {
   const [journalDraft, setJournalDraft] = useState("");
   const [journalSaving, setJournalSaving] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
 
   async function load() {
     const [{ data: m }, { data: p }, { data: j }] = await Promise.all([
@@ -162,18 +163,42 @@ export default function ProgressPage() {
         return;
       }
       const url = supabase.storage.from("progress-photos").getPublicUrl(path).data.publicUrl;
-      const { error: insertError } = await supabase.from("progress_photos").insert({
-        user_id: user.id,
-        taken_at: new Date().toISOString().slice(0, 10),
-        photo_url: url,
-        angle,
-      });
-      if (insertError) setUploadError(insertError.message);
+      const { data: inserted, error: insertError } = await supabase
+        .from("progress_photos")
+        .insert({
+          user_id: user.id,
+          taken_at: new Date().toISOString().slice(0, 10),
+          photo_url: url,
+          angle,
+        })
+        .select("id")
+        .single();
+      if (insertError) {
+        setUploadError(insertError.message);
+        return;
+      }
+      await load();
+      // AI leanness analysis runs after the upload itself succeeds, so a slow
+      // or failed analysis never blocks the photo from saving — it's fine to
+      // let this trail behind and just refresh once it lands.
+      if (inserted) {
+        setAnalyzingId(inserted.id);
+        fetch("/api/progress-photos/analyze", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ photoId: inserted.id }),
+        })
+          .catch(() => {})
+          .finally(() => {
+            setAnalyzingId(null);
+            load();
+            fetch("/api/rank", { method: "POST" }).catch(() => {});
+          });
+      }
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : "Couldn't process that image");
     } finally {
       setUploading(false);
-      await load();
     }
   }
 
@@ -364,10 +389,42 @@ export default function ProgressPage() {
                 alt={`${p.angle} progress photo from ${p.taken_at}`}
                 className="aspect-square w-full rounded-xl object-cover"
               />
+              {p.ai_leanness_score != null && (
+                <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-300">
+                  {p.ai_leanness_score}
+                </span>
+              )}
+              {analyzingId === p.id && (
+                <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-[#a1a1aa]">
+                  Analyzing…
+                </span>
+              )}
               <p className="mt-1 text-center text-[10px] text-[#52525b]">{formatDate(p.taken_at)}</p>
             </div>
           ))}
         </div>
+
+        {photos.some((p) => p.ai_summary) && (
+          <div className="mt-4 space-y-2.5">
+            <p className="text-xs font-semibold text-[#e4e4e7]">AI notes</p>
+            {photos
+              .filter((p) => p.ai_summary)
+              .slice(0, 3)
+              .map((p) => (
+                <div key={p.id} className="rounded-xl border border-[#27272a] bg-[#111113] p-3">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <p className="text-xs font-medium capitalize text-[#a1a1aa]">
+                      {p.angle} · {formatDate(p.taken_at)}
+                    </p>
+                    {p.ai_leanness_score != null && (
+                      <p className="text-xs font-semibold tabular-nums text-emerald-400">{p.ai_leanness_score}/100</p>
+                    )}
+                  </div>
+                  <p className="mt-1 text-sm leading-snug text-[#e4e4e7]">{p.ai_summary}</p>
+                </div>
+              ))}
+          </div>
+        )}
       </div>
     </div>
     </PullToRefresh>
