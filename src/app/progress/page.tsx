@@ -14,14 +14,25 @@ import type { Measurement, ProgressPhoto } from "@/lib/types";
 
 type Angle = "front" | "side" | "back";
 
+function formatDate(iso: string): string {
+  return new Date(iso + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export default function ProgressPage() {
   const supabase = createClient();
   const [measurements, setMeasurements] = useState<Measurement[]>([]);
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [weight, setWeight] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [angle, setAngle] = useState<Angle>("front");
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     const [{ data: m }, { data: p }] = await Promise.all([
@@ -38,6 +49,7 @@ export default function ProgressPage() {
     ]);
     setMeasurements(m ?? []);
     setPhotos(p ?? []);
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -48,11 +60,16 @@ export default function ProgressPage() {
 
   async function logMeasurement() {
     setSaving(true);
+    setSaveError(null);
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase.from("measurements").upsert(
+    if (!user) {
+      setSaveError("Not signed in");
+      setSaving(false);
+      return;
+    }
+    const { error } = await supabase.from("measurements").upsert(
       {
         user_id: user.id,
         logged_at: new Date().toISOString().slice(0, 10),
@@ -60,35 +77,55 @@ export default function ProgressPage() {
       },
       { onConflict: "user_id,logged_at" }
     );
-    setWeight("");
     setSaving(false);
-    load();
+    if (error) {
+      setSaveError(error.message);
+      return;
+    }
+    setWeight("");
+    await load();
+  }
+
+  async function deleteMeasurement(id: string) {
+    await supabase.from("measurements").delete().eq("id", id);
+    await load();
   }
 
   async function uploadPhoto(file: File) {
     setUploading(true);
+    setUploadError(null);
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setUploadError("Not signed in");
+      setUploading(false);
+      return;
+    }
     const path = `${user.id}/${Date.now()}-${angle}.jpg`;
     const { error } = await supabase.storage.from("progress-photos").upload(path, file);
-    if (!error) {
-      const url = supabase.storage.from("progress-photos").getPublicUrl(path).data.publicUrl;
-      await supabase.from("progress_photos").insert({
-        user_id: user.id,
-        taken_at: new Date().toISOString().slice(0, 10),
-        photo_url: url,
-        angle,
-      });
-      load();
+    if (error) {
+      setUploadError(error.message);
+      setUploading(false);
+      return;
     }
+    const url = supabase.storage.from("progress-photos").getPublicUrl(path).data.publicUrl;
+    const { error: insertError } = await supabase.from("progress_photos").insert({
+      user_id: user.id,
+      taken_at: new Date().toISOString().slice(0, 10),
+      photo_url: url,
+      angle,
+    });
+    if (insertError) setUploadError(insertError.message);
     setUploading(false);
+    await load();
   }
 
   const chartData = measurements
     .filter((m) => m.weight_lb != null)
     .map((m) => ({ date: m.logged_at.slice(5), weight: Number(m.weight_lb) }));
+
+  const history = [...measurements].sort((a, b) => (a.logged_at < b.logged_at ? 1 : -1));
 
   return (
     <div className="mx-auto max-w-md px-5 py-8 pb-8">
@@ -110,6 +147,10 @@ export default function ProgressPage() {
         >
           {saving ? "Saving..." : "Log"}
         </button>
+        {saveError && <p className="mt-2 text-sm text-red-400">{saveError}</p>}
+        <p className="mt-2 text-xs text-zinc-500">
+          Logging today again updates today&apos;s entry instead of adding a duplicate.
+        </p>
       </div>
 
       {chartData.length > 1 && (
@@ -129,6 +170,39 @@ export default function ProgressPage() {
           </ResponsiveContainer>
         </div>
       )}
+
+      <div className="mt-6">
+        <p className="mb-3 text-sm font-semibold text-zinc-300">History</p>
+        {loading && <p className="text-sm text-zinc-500">Loading...</p>}
+        {!loading && history.length === 0 && (
+          <p className="rounded-2xl border border-dashed border-zinc-800 py-6 text-center text-sm text-zinc-500">
+            No entries yet — log today&apos;s weight above to start your history.
+          </p>
+        )}
+        {history.length > 0 && (
+          <div className="space-y-2">
+            {history.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
+              >
+                <div>
+                  <p className="text-sm font-semibold text-zinc-100">
+                    {m.weight_lb != null ? `${m.weight_lb} lb` : "No weight logged"}
+                  </p>
+                  <p className="text-xs text-zinc-500">{formatDate(m.logged_at)}</p>
+                </div>
+                <button
+                  onClick={() => deleteMeasurement(m.id)}
+                  className="text-xs font-medium text-zinc-500 active:opacity-70"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="mt-6">
         <p className="mb-3 text-sm font-semibold text-zinc-300">Progress photos</p>
@@ -166,16 +240,19 @@ export default function ProgressPage() {
             />
           </label>
         </div>
+        {uploadError && <p className="mt-2 text-sm text-red-400">{uploadError}</p>}
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           {photos.map((p) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={p.id}
-              src={p.photo_url}
-              alt={`${p.angle} progress photo from ${p.taken_at}`}
-              className="aspect-square w-full rounded-xl object-cover"
-            />
+            <div key={p.id} className="relative">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={p.photo_url}
+                alt={`${p.angle} progress photo from ${p.taken_at}`}
+                className="aspect-square w-full rounded-xl object-cover"
+              />
+              <p className="mt-1 text-center text-[10px] text-zinc-500">{formatDate(p.taken_at)}</p>
+            </div>
           ))}
         </div>
       </div>
