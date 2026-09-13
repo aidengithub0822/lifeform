@@ -70,6 +70,16 @@ body {
   animation: lf-border-spin 6s linear infinite;
 }
 
+/* Rotating gradient ring around a profile avatar — same conic-gradient
+   language as .lf-gradient-border, just circular (Instagram "story ring"
+   territory, but slow and subtle instead of a bright status indicator). */
+.lf-avatar-ring {
+  border-radius: 9999px;
+  background: conic-gradient(from var(--lf-angle), #10b981, #3b82f6, #a855f7, #10b981);
+  animation: lf-border-spin 6s linear infinite;
+  padding: 3px;
+}
+
 .lf-shine {
   position: relative;
   overflow: hidden;

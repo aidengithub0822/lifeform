@@ -20,12 +20,6 @@ const items = [
     desc: "Workouts by muscle group",
   },
   {
-    href: "/community",
-    icon: "🌐",
-    title: "Community",
-    desc: "AI-moderated discussion",
-  },
-  {
     href: "/messages",
     icon: "✉️",
     title: "Messages",

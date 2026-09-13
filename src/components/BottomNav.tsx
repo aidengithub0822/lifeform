@@ -7,6 +7,7 @@ const tabs = [
   { href: "/", label: "Home", icon: "💪" },
   { href: "/scan", label: "Scan", icon: "📸" },
   { href: "/recipes", label: "Recipes", icon: "📖" },
+  { href: "/community", label: "Community", icon: "🌐" },
   { href: "/progress", label: "Progress", icon: "📈" },
 ];
 

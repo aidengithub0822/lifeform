@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { compressImageForUpload } from "@/lib/imageUpload";
 import PhotoLightbox from "@/components/PhotoLightbox";
 import PullToRefresh from "@/components/PullToRefresh";
+import Avatar from "@/components/Avatar";
 import type { Profile, ProfilePhoto } from "@/lib/types";
 
 export default function ProfilePage() {
@@ -259,31 +260,17 @@ export default function ProfilePage() {
         ← Back
       </Link>
 
-      <div className="mt-4 flex items-center gap-4">
-        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900">
-          {profile.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={profile.avatar_url} alt={`${profile.username}'s avatar`} className="h-full w-full object-cover" />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center text-2xl font-bold text-zinc-600">
-              {profile.username.slice(0, 1).toUpperCase()}
-            </div>
-          )}
-        </div>
-        <div className="min-w-0">
-          <h1 className="truncate text-xl font-bold">{profile.username}</h1>
-          <div className="mt-0.5 flex gap-3 text-xs text-zinc-400">
-            <span>
-              <span className="font-semibold text-zinc-200">{followerCount}</span> follower
-              {followerCount === 1 ? "" : "s"}
-            </span>
-            <span>
-              <span className="font-semibold text-zinc-200">{followingCount}</span> following
-            </span>
-          </div>
+      {/* Header: avatar + stats row, Instagram-style */}
+      <div className="mt-4 flex items-center gap-5">
+        <div className="relative shrink-0">
+          <Avatar url={profile.avatar_url} name={profile.username} size={84} ring />
           {isOwn && (
-            <label className="mt-1 inline-block text-xs font-medium text-emerald-400 active:opacity-70">
-              {uploadingAvatar ? "Uploading..." : "Change photo"}
+            <label className="absolute bottom-0 right-0 flex h-7 w-7 items-center justify-center rounded-full border-2 border-zinc-950 bg-emerald-500 text-sm active:opacity-80">
+              {uploadingAvatar ? (
+                <span className="text-[9px] font-bold text-black">...</span>
+              ) : (
+                <span className="text-black">＋</span>
+              )}
               <input
                 type="file"
                 accept="image/*"
@@ -293,30 +280,48 @@ export default function ProfilePage() {
             </label>
           )}
         </div>
+
+        <div className="flex flex-1 justify-around text-center">
+          <div>
+            <p className="text-lg font-bold leading-tight">{photos.length}</p>
+            <p className="text-[11px] text-zinc-400">Posts</p>
+          </div>
+          <div>
+            <p className="text-lg font-bold leading-tight">{followerCount}</p>
+            <p className="text-[11px] text-zinc-400">Followers</p>
+          </div>
+          <div>
+            <p className="text-lg font-bold leading-tight">{followingCount}</p>
+            <p className="text-[11px] text-zinc-400">Following</p>
+          </div>
+        </div>
       </div>
 
-      <div className="mt-5">
+      <h1 className="mt-3 truncate text-base font-bold">{profile.username}</h1>
+
+      <div className="mt-1.5">
         {isOwn ? (
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-            <p className="mb-2 text-sm font-semibold text-zinc-300">Bio</p>
+          <div className="space-y-2">
             <textarea
               value={bioDraft}
               onChange={(e) => setBioDraft(e.target.value)}
               placeholder="Tell people a bit about yourself..."
-              rows={3}
-              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+              rows={2}
+              className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
-            <button
-              onClick={saveBio}
-              disabled={savingBio}
-              className="mt-2 w-full rounded-xl bg-emerald-500 py-2 text-sm font-semibold text-black disabled:opacity-60"
-            >
-              {savingBio ? "Saving..." : "Save bio"}
-            </button>
-            {bioError && <p className="mt-2 text-sm text-red-400">{bioError}</p>}
+            {bioDraft !== (profile.bio ?? "") && (
+              <button
+                onClick={saveBio}
+                disabled={savingBio}
+                className="w-full rounded-xl bg-emerald-500 py-2 text-sm font-semibold text-black disabled:opacity-60"
+              >
+                {savingBio ? "Saving..." : "Save bio"}
+              </button>
+            )}
+            {bioError && <p className="text-sm text-red-400">{bioError}</p>}
           </div>
         ) : (
-          profile.bio && <p className="whitespace-pre-wrap text-sm text-zinc-300">{profile.bio}</p>
+          profile.bio && <p className="whitespace-pre-wrap text-sm leading-relaxed text-zinc-300">{profile.bio}</p>
         )}
       </div>
 
@@ -328,49 +333,50 @@ export default function ProfilePage() {
             </p>
           )}
           <div className="flex gap-2">
-          <button
-            onClick={toggleFollow}
-            disabled={followBusy || !myUserId}
-            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60 ${
-              isFollowing
-                ? "border border-zinc-700 bg-zinc-900 text-zinc-200"
-                : "bg-emerald-500 text-black"
-            }`}
-          >
-            {isFollowing ? "Following" : "Follow"}
-          </button>
-          <button
-            onClick={() => router.push(`/messages/${profile.user_id}`)}
-            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 py-2.5 text-sm font-semibold text-zinc-200"
-          >
-            Message
-          </button>
+            <button
+              onClick={toggleFollow}
+              disabled={followBusy || !myUserId}
+              className={`flex-1 rounded-xl py-2 text-sm font-semibold transition disabled:opacity-60 ${
+                isFollowing
+                  ? "border border-zinc-700 bg-zinc-900 text-zinc-200"
+                  : "bg-emerald-500 text-black active:scale-[0.98]"
+              }`}
+            >
+              {isFollowing ? "Following" : "Follow"}
+            </button>
+            <button
+              onClick={() => router.push(`/messages/${profile.user_id}`)}
+              className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 py-2 text-sm font-semibold text-zinc-200 active:scale-[0.98]"
+            >
+              Message
+            </button>
           </div>
         </div>
       )}
 
-      <div className="mt-6">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm font-semibold text-zinc-300">Photos</p>
-          {isOwn && (
-            <label className="text-xs font-medium text-emerald-400 active:opacity-70">
-              {uploadingPhoto ? "Uploading..." : "+ Add photo"}
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => e.target.files?.[0] && uploadGalleryPhoto(e.target.files[0])}
-              />
-            </label>
-          )}
+      {isOwn && (
+        <div className="mt-4">
+          <label className="block w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 py-2 text-center text-sm font-semibold text-zinc-200 active:scale-[0.98]">
+            {uploadingPhoto ? "Uploading..." : "+ Add photo"}
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && uploadGalleryPhoto(e.target.files[0])}
+            />
+          </label>
         </div>
+      )}
+
+      {/* Photo grid: edge-to-edge, tight gap, square tiles — Instagram grid feel */}
+      <div className="mt-6 border-t border-zinc-800 pt-3">
         {galleryError && <p className="mb-2 text-sm text-red-400">{galleryError}</p>}
         {photos.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-zinc-800 py-8 text-center text-sm text-zinc-500">
+          <p className="rounded-2xl border border-dashed border-zinc-800 py-10 text-center text-sm text-zinc-500">
             {isOwn ? "No photos yet — add your first one." : "No photos yet."}
           </p>
         ) : (
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-3 gap-0.5">
             {photos.map((p) => (
               <div key={p.id} className="group relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -378,7 +384,7 @@ export default function ProfilePage() {
                   src={p.photo_url}
                   alt={`${profile.username}'s photo`}
                   onClick={() => setLightboxPhoto(p)}
-                  className="aspect-square w-full rounded-xl object-cover active:opacity-80"
+                  className="aspect-square w-full object-cover active:opacity-80"
                 />
                 {isOwn && (
                   <button

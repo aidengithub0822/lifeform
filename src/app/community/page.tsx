@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
-import UserLink from "@/components/UserLink";
+import AuthorLine from "@/components/AuthorLine";
+import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
 import type { CommunityPost } from "@/lib/types";
 
@@ -12,11 +12,13 @@ export default function CommunityPage() {
   const supabase = createClient();
   const [posts, setPosts] = useState<CommunityPost[] | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [avatars, setAvatars] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myAvatar, setMyAvatar] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
@@ -30,14 +32,25 @@ export default function CommunityPage() {
         const items: CommunityPost[] = body.items ?? [];
         setPosts(items);
         if (items.length > 0) {
-          const { data: comments } = await supabase
-            .from("community_comments")
-            .select("post_id")
-            .in("post_id", items.map((p) => p.id))
-            .returns<{ post_id: string }[]>();
+          const ids = [...new Set(items.map((p) => p.user_id))];
+          const [{ data: comments }, { data: profiles }] = await Promise.all([
+            supabase
+              .from("community_comments")
+              .select("post_id")
+              .in("post_id", items.map((p) => p.id))
+              .returns<{ post_id: string }[]>(),
+            supabase
+              .from("profiles")
+              .select("user_id, avatar_url")
+              .in("user_id", ids)
+              .returns<{ user_id: string; avatar_url: string | null }[]>(),
+          ]);
           const counts: Record<string, number> = {};
           for (const c of comments ?? []) counts[c.post_id] = (counts[c.post_id] ?? 0) + 1;
           setCommentCounts(counts);
+          const avatarMap: Record<string, string | null> = {};
+          for (const p of profiles ?? []) avatarMap[p.user_id] = p.avatar_url;
+          setAvatars(avatarMap);
         }
       }
     } finally {
@@ -48,7 +61,17 @@ export default function CommunityPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client fetch on mount
     load();
-    supabase.auth.getUser().then(({ data }) => setMyUserId(data.user?.id ?? null));
+    supabase.auth.getUser().then(({ data }) => {
+      setMyUserId(data.user?.id ?? null);
+      if (data.user) {
+        supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("user_id", data.user.id)
+          .maybeSingle()
+          .then(({ data: prof }) => setMyAvatar((prof as { avatar_url: string | null } | null)?.avatar_url ?? null));
+      }
+    });
     fetch("/api/admin/status")
       .then((r) => r.json())
       .then((b) => setIsAdmin(!!b.isAdmin))
@@ -129,30 +152,34 @@ export default function CommunityPage() {
   return (
     <PullToRefresh onRefresh={load}>
       <div className="mx-auto max-w-md px-5 py-8">
-        <Link href="/" className="text-sm font-medium text-emerald-400">
-          ← Back
-        </Link>
-        <h1 className="mt-2 text-2xl font-bold">Community</h1>
-        <p className="mt-1 text-sm text-zinc-400">
-          A shared thread for anyone using the app. Posts are checked by AI moderation before they go up.
+        <div className="flex items-center gap-2">
+          <h1 className="lf-glow rounded-full px-1 text-2xl font-bold">Community</h1>
+        </div>
+        <p className="mt-1.5 text-sm text-zinc-400">
+          A shared feed for anyone using lifeform — AI-moderated, so it stays worth reading.
         </p>
 
-        <div className="mt-5 space-y-2">
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Share a win, ask a question, start a discussion..."
-            rows={3}
-            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-          />
-          <button
-            onClick={submitPost}
-            disabled={posting || !draft.trim()}
-            className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
-          >
-            {posting ? "Posting..." : "Post"}
-          </button>
-          {error && <p className="text-sm text-red-400">{error}</p>}
+        <div className="lf-gradient-border mt-5 flex gap-2.5 p-3">
+          <Avatar url={myAvatar} name="me" size={36} />
+          <div className="min-w-0 flex-1 space-y-2">
+            <textarea
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              placeholder="Share a win, ask a question, start a discussion..."
+              rows={2}
+              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            />
+            <div className="flex items-center justify-end gap-2">
+              {error && <p className="mr-auto text-xs text-red-400">{error}</p>}
+              <button
+                onClick={submitPost}
+                disabled={posting || !draft.trim()}
+                className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-60"
+              >
+                {posting ? "Posting..." : "Post"}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div className="mt-6 space-y-3">
@@ -167,18 +194,18 @@ export default function CommunityPage() {
             const isEditing = editingId === post.id;
             const replies = commentCounts[post.id] ?? 0;
             return (
-              <div key={post.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-xs font-semibold text-zinc-400">
-                    <UserLink username={post.author_username} fallback="Someone" />
-                  </span>
-                  <p className="shrink-0 text-[11px] text-zinc-600">
-                    {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
-                  </p>
-                </div>
+              <div
+                key={post.id}
+                className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 transition active:scale-[0.99]"
+              >
+                <AuthorLine
+                  username={post.author_username}
+                  avatarUrl={avatars[post.user_id]}
+                  createdAt={post.created_at}
+                />
 
                 {isEditing ? (
-                  <div className="mt-2 space-y-2">
+                  <div className="mt-2.5 space-y-2">
                     <textarea
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
@@ -202,37 +229,46 @@ export default function CommunityPage() {
                   </div>
                 ) : (
                   <Link href={`/community/${post.id}`} className="block">
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{post.message}</p>
+                    <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
+                      {post.message}
+                    </p>
                   </Link>
                 )}
 
                 {!isEditing && (
-                  <div className="mt-2.5 flex items-center gap-4 border-t border-zinc-800 pt-2">
-                    <Link href={`/community/${post.id}`} className="text-xs font-medium text-zinc-400 active:opacity-70">
-                      💬 {replies > 0 ? `${replies} ${replies === 1 ? "reply" : "replies"}` : "Reply"}
+                  <div className="mt-3 flex items-center gap-1 border-t border-zinc-800 pt-2.5">
+                    <Link
+                      href={`/community/${post.id}`}
+                      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800"
+                    >
+                      <span>💬</span>
+                      <span>{replies > 0 ? replies : "Reply"}</span>
                     </Link>
                     <button
                       onClick={() => sharePost(post)}
-                      className="text-xs font-medium text-zinc-400 active:opacity-70"
+                      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800"
                     >
-                      ↗ Share
+                      <span>↗</span>
+                      <span>Share</span>
                     </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => startEdit(post)}
+                        className="ml-auto rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+                      >
+                        Edit
+                      </button>
+                    )}
                     {canDelete && (
                       <button
                         onClick={() =>
                           isAdmin && post.user_id !== myUserId ? deleteAsAdmin(post.id) : deleteOwn(post.id)
                         }
-                        className="ml-auto text-xs font-medium text-zinc-500 active:opacity-70"
+                        className={`rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800 ${
+                          isAdmin ? "" : "ml-auto"
+                        }`}
                       >
                         Delete
-                      </button>
-                    )}
-                    {isAdmin && (
-                      <button
-                        onClick={() => startEdit(post)}
-                        className="text-xs font-medium text-zinc-500 active:opacity-70"
-                      >
-                        Edit
                       </button>
                     )}
                   </div>
