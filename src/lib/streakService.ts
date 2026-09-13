@@ -26,6 +26,11 @@ async function loadRawState(supabase: AnySupabase, userId: string) {
       .from("food_logs")
       .select("logged_at")
       .eq("user_id", userId)
+      // Deliberately backdated logs (see counts_for_streak on food_logs)
+      // shouldn't be able to retroactively patch a broken streak — only
+      // "logged for real, today" activity counts toward the day-activity
+      // set streak continuity is computed from.
+      .eq("counts_for_streak", true)
       .gte("logged_at", new Date(Date.now() - 125 * 86400000).toISOString()),
     supabase
       .from("workouts")

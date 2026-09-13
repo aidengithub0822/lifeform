@@ -20,6 +20,14 @@ interface ScanResult {
 
 type Mode = "photo" | "text";
 
+// The date input's own local calendar day — using toISOString() here would
+// silently roll to the wrong day for anyone west of UTC in the evening.
+function todayLocalStr(): string {
+  const d = new Date();
+  const offset = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
+}
+
 // iPhone camera photos can be several MB, and base64-encoding inflates that
 // by ~33% — easily enough to blow past the ~4.5MB request body limit on
 // Vercel's serverless functions, which then rejects the request before our
@@ -71,6 +79,9 @@ export default function ScanPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [sparkXp, setSparkXp] = useState<number | null>(null);
+  const today = todayLocalStr();
+  const [logDate, setLogDate] = useState(today);
+  const isBackdated = logDate !== today;
 
   async function handleFile(file: File) {
     setError(null);
@@ -147,6 +158,12 @@ export default function ScanPage() {
       }
     }
 
+    // A backdated entry gets a timestamp inside its chosen day (noon, to
+    // stay clear of either UTC-day edge) instead of "now", and is flagged
+    // so it never earns streak/XP credit — see counts_for_streak on the
+    // food_logs table.
+    const loggedAt = isBackdated ? new Date(`${logDate}T12:00:00`).toISOString() : new Date().toISOString();
+
     const { error } = await supabase.from("food_logs").insert({
       user_id: user.id,
       photo_url: photoUrl,
@@ -160,6 +177,8 @@ export default function ScanPage() {
       score: Math.round(result.score),
       score_reason: result.score_reason,
       source: "scan",
+      logged_at: loggedAt,
+      counts_for_streak: !isBackdated,
     });
 
     setSaving(false);
@@ -169,14 +188,16 @@ export default function ScanPage() {
     }
 
     let xpEarned = 0;
-    try {
-      const sparkRes = await fetch("/api/streak/spark", { method: "POST" });
-      if (sparkRes.ok) {
-        const spark = await sparkRes.json();
-        xpEarned = spark.xpEarned;
+    if (!isBackdated) {
+      try {
+        const sparkRes = await fetch("/api/streak/spark", { method: "POST" });
+        if (sparkRes.ok) {
+          const spark = await sparkRes.json();
+          xpEarned = spark.xpEarned;
+        }
+      } catch {
+        // Spark XP is a nice-to-have — never block navigation on it failing.
       }
-    } catch {
-      // Spark XP is a nice-to-have — never block navigation on it failing.
     }
 
     if (xpEarned > 0) {
@@ -233,6 +254,30 @@ export default function ScanPage() {
           ⌨️ Type it
         </button>
       </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900/60 px-4 py-3">
+        <div>
+          <label htmlFor="log-date" className="block text-xs font-medium text-zinc-400">
+            Log for
+          </label>
+          <p className="mt-0.5 text-sm font-semibold">
+            {isBackdated ? new Date(`${logDate}T12:00:00`).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) : "Today"}
+          </p>
+        </div>
+        <input
+          id="log-date"
+          type="date"
+          value={logDate}
+          max={today}
+          onChange={(e) => setLogDate(e.target.value || today)}
+          className="rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-200 outline-none focus:border-emerald-500"
+        />
+      </div>
+      {isBackdated && (
+        <p className="mt-2 text-xs text-zinc-500">
+          Backdated entries show up on that day&apos;s log but won&apos;t earn XP or count toward your streak.
+        </p>
+      )}
 
       {mode === "photo" && !imagePreview && (
         <div className="mt-6 flex aspect-square flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-zinc-700 text-zinc-400">

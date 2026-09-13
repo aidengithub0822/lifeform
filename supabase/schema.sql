@@ -37,6 +37,13 @@ create table if not exists public.food_logs (
 );
 create index if not exists food_logs_user_time_idx on public.food_logs (user_id, logged_at desc);
 
+-- Lets a user explicitly log food against a past day (e.g. "forgot to log
+-- yesterday's dinner") without that entry silently earning streak/XP credit
+-- it didn't happen to have "for real" — the scan page sets this false
+-- whenever the chosen log date isn't today, and streakService excludes
+-- false rows from the day-activity set it uses for streak continuity.
+alter table public.food_logs add column if not exists counts_for_streak boolean not null default true;
+
 create table if not exists public.recipes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,

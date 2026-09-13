@@ -35,6 +35,7 @@ export interface FoodLog {
   score_reason: string;
   serving_note: string | null;
   source: "scan" | "recipe" | "manual";
+  counts_for_streak: boolean;
 }
 
 export interface Recipe {
