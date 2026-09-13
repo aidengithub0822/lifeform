@@ -50,7 +50,7 @@ export default function SignupPage() {
   return (
     <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-6">
       <h1 className="mb-1 text-2xl font-bold text-white">Create your account</h1>
-      <p className="mb-8 text-sm text-zinc-400">Set up your tracker in a minute.</p>
+      <p className="mb-8 text-sm text-zinc-400">Train. Track progress. Improve. Connect.</p>
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <input
           type="email"

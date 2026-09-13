@@ -3,10 +3,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Flame from "@/components/Flame";
 import HeaderMenu from "@/components/HeaderMenu";
-import ScoreBadge from "@/components/ScoreBadge";
 import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
-import ExploreGrid from "@/components/ExploreGrid";
 import RefreshOnPull from "@/components/RefreshOnPull";
+import FoodLogItem from "@/components/FoodLogItem";
 import type { FoodLog, Goal } from "@/lib/types";
 
 function todayRangeUTC() {
@@ -127,23 +126,24 @@ export default async function HomePage() {
           </div>
         )}
         {entries.map((entry) => (
-          <div
+          <FoodLogItem
             key={entry.id}
-            className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-3"
-          >
-            <ScoreBadge score={entry.score} size="sm" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium">{entry.food_name}</p>
-              <p className="text-xs text-zinc-500">
-                {entry.calories} calories · {Math.round(entry.protein_g)}g protein
-              </p>
-            </div>
-          </div>
+            id={entry.id}
+            foodName={entry.food_name}
+            calories={entry.calories}
+            proteinG={entry.protein_g}
+            score={entry.score}
+          />
         ))}
       </div>
 
+      {entries.length > 0 && (
+        <Link href="/scan/history" className="mt-3 block text-center text-xs font-medium text-zinc-500">
+          View full food log history →
+        </Link>
+      )}
+
       <WeeklyTrends days={dayTotals} calorieTarget={goal.calorie_target} />
-      <ExploreGrid />
       <div className="pb-8" />
     </div>
     </RefreshOnPull>

@@ -14,9 +14,26 @@ import type { GoalPhase } from "@/lib/types";
 // Pre-filled defaults matching a lean-bulk starting point: ~140 lb, 6'0" (72in),
 // bulking at ~0.75 lb/week. Every field is editable — this is a starting point,
 // not a locked-in plan.
+const GOALS = [
+  { key: "muscle", label: "Build muscle", icon: "💪" },
+  { key: "strength", label: "Get stronger", icon: "🏋️" },
+  { key: "lose", label: "Lose weight", icon: "🔥" },
+  { key: "active", label: "Stay active", icon: "⚡" },
+  { key: "track", label: "Track my workouts", icon: "📊" },
+  { key: "friends", label: "Train with friends", icon: "🤝" },
+] as const;
+
 export default function OnboardingPage() {
   const router = useRouter();
   const supabase = createClient();
+
+  // Lightweight personalization step before the targets form — this is
+  // presentation-only for now (nothing new to persist without a schema
+  // change, which is out of scope for this pass), but it sets the tone
+  // that Lifeform is more than a calorie tracker right from the first
+  // screen after signup, and primes the phase picker below it.
+  const [step, setStep] = useState<"intro" | "targets">("intro");
+  const [selectedGoal, setSelectedGoal] = useState<(typeof GOALS)[number]["key"] | null>(null);
 
   const [weight, setWeight] = useState(140);
   const [height, setHeight] = useState(72);
@@ -60,6 +77,40 @@ export default function OnboardingPage() {
     }
     router.push("/");
     router.refresh();
+  }
+
+  if (step === "intro") {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-10">
+        <h1 className="text-2xl font-bold">What brings you to Lifeform?</h1>
+        <p className="mt-1 text-sm text-zinc-400">Pick what fits best — you can do it all here.</p>
+
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          {GOALS.map((g) => (
+            <button
+              key={g.key}
+              onClick={() => setSelectedGoal(g.key)}
+              className={`flex flex-col items-start gap-2 rounded-2xl border p-4 text-left transition ${
+                selectedGoal === g.key
+                  ? "border-emerald-500 bg-emerald-500/10"
+                  : "border-zinc-800 bg-zinc-900 active:scale-[0.98]"
+              }`}
+            >
+              <span className="text-2xl">{g.icon}</span>
+              <span className="text-sm font-semibold text-zinc-100">{g.label}</span>
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setStep("targets")}
+          disabled={!selectedGoal}
+          className="mt-8 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-40"
+        >
+          Continue
+        </button>
+      </div>
+    );
   }
 
   return (

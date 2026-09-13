@@ -1,8 +1,18 @@
 @import "tailwindcss";
 
+/* Lifeform is dark-mode-only by design — every user sees the same app
+   regardless of their OS/browser light-dark setting. This used to be
+   leftover create-next-app boilerplate that defaulted to a WHITE
+   background and only switched to dark under `prefers-color-scheme:
+   dark`. Because it was unlayered plain CSS, it silently beat every
+   `bg-zinc-950`/`text-white` Tailwind utility in the app (Tailwind's
+   utilities live in a lower-priority cascade layer), which is why some
+   screens rendered with a white background for anyone on light mode.
+   Fixed values, no media query, so the app looks identical for everyone. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #09090b;
+  --foreground: #fafafa;
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -12,11 +22,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
