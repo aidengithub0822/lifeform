@@ -90,34 +90,36 @@ export default async function HomePage() {
         <Flame />
       </div>
 
-      <div className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-900 p-5">
+      <div className="mt-7">
         <div className="flex items-baseline justify-between">
-          <p className="text-sm text-zinc-400">Calories today</p>
-          <p className="text-sm capitalize text-zinc-500">{goal.phase} phase</p>
+          <p className="text-sm text-[#a1a1aa]">Remaining today</p>
+          <p className="text-xs capitalize text-[#52525b]">{goal.phase} phase</p>
         </div>
         <div className="mt-1 flex items-baseline gap-2">
-          <span className="text-3xl font-extrabold">{Math.round(totals.calories)}</span>
-          <span className="text-zinc-500">/ {goal.calorie_target}</span>
+          <span className="text-[34px] font-bold tracking-tight tabular-nums">
+            {Math.max(0, Math.round(goal.calorie_target - totals.calories))}
+          </span>
+          <span className="text-sm text-[#71717a] tabular-nums">of {goal.calorie_target}</span>
         </div>
         <ProgressBar value={totals.calories} target={goal.calorie_target} />
 
-        <div className="mt-5 grid grid-cols-3 gap-3">
-          <MacroCol label="Protein" value={totals.protein} target={goal.protein_target_g} />
-          <MacroCol label="Carbs" value={totals.carbs} target={goal.carb_target_g} />
-          <MacroCol label="Fat" value={totals.fat} target={goal.fat_target_g} />
+        <div className="mt-4 grid grid-cols-3 gap-3">
+          <MacroCol label="Protein" value={totals.protein} target={goal.protein_target_g} color="#10b981" />
+          <MacroCol label="Carbs" value={totals.carbs} target={goal.carb_target_g} color="#38bdf8" />
+          <MacroCol label="Fat" value={totals.fat} target={goal.fat_target_g} color="#f59e0b" />
         </div>
       </div>
 
-      <div className="mt-6 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-zinc-300">Today</h2>
+      <div className="mt-7 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-[#e4e4e7]">Today</h2>
         <Link href="/scan" className="text-sm font-medium text-emerald-400">
           + Add food
         </Link>
       </div>
 
-      <div className="mt-3 space-y-3">
+      <div className="mt-1">
         {entries.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-zinc-800 py-10 text-center text-sm text-zinc-500">
+          <div className="rounded-2xl border border-dashed border-[#27272a] py-10 text-center text-sm text-[#71717a]">
             Nothing logged yet today.
             <br />
             <Link href="/scan" className="mt-2 inline-block font-semibold text-emerald-400">
@@ -133,12 +135,13 @@ export default async function HomePage() {
             calories={entry.calories}
             proteinG={entry.protein_g}
             score={entry.score}
+            loggedAt={entry.logged_at}
           />
         ))}
       </div>
 
       {entries.length > 0 && (
-        <Link href="/scan/history" className="mt-3 block text-center text-xs font-medium text-zinc-500">
+        <Link href="/scan/history" className="mt-3 block text-center text-xs font-medium text-[#52525b]">
           View full food log history →
         </Link>
       )}
@@ -153,24 +156,35 @@ export default async function HomePage() {
 function ProgressBar({ value, target }: { value: number; target: number }) {
   const pct = Math.min(100, (value / target) * 100);
   return (
-    <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-      <div className="h-full rounded-full bg-emerald-500" style={{ width: `${pct}%` }} />
+    <div className="mt-3 flex h-1.5 w-full overflow-hidden rounded-full bg-[#1c1c1f]">
+      <div className="h-full bg-[#10b981]" style={{ width: `${Math.min(100, (value / target) * 100)}%` }} />
+      {pct < 100 && <div className="h-full flex-1" />}
     </div>
   );
 }
 
-function MacroCol({ label, value, target }: { label: string; value: number; target: number }) {
+function MacroCol({
+  label,
+  value,
+  target,
+  color,
+}: {
+  label: string;
+  value: number;
+  target: number;
+  color: string;
+}) {
   const pct = Math.min(100, (value / target) * 100);
   return (
     <div>
-      <div className="flex justify-between text-xs">
-        <span className="text-zinc-400">{label}</span>
-        <span className="text-zinc-500">
+      <div className="flex justify-between text-[11px]">
+        <span className="text-[#a1a1aa]">{label}</span>
+        <span className="tabular-nums text-[#71717a]">
           {Math.round(value)}/{target}g
         </span>
       </div>
-      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-zinc-800">
-        <div className="h-full rounded-full bg-blue-400" style={{ width: `${pct}%` }} />
+      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[#1c1c1f]">
+        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
       </div>
     </div>
   );

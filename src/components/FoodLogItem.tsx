@@ -15,6 +15,7 @@ export default function FoodLogItem({
   calories,
   proteinG,
   score,
+  loggedAt,
   onDeleted,
 }: {
   id: string;
@@ -22,6 +23,7 @@ export default function FoodLogItem({
   calories: number;
   proteinG: number;
   score: number;
+  loggedAt?: string;
   onDeleted?: (id: string) => void;
 }) {
   const router = useRouter();
@@ -45,17 +47,21 @@ export default function FoodLogItem({
     router.refresh();
   }
 
+  const time = loggedAt
+    ? new Date(loggedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })
+    : null;
+
   if (confirming) {
     return (
-      <div className="flex items-center gap-3 rounded-2xl border border-red-900/50 bg-red-950/20 p-3">
+      <div className="flex items-center gap-3 border-b border-[#1a1a1d] py-3">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-zinc-200">Delete &quot;{foodName}&quot;?</p>
-          <p className="text-xs text-zinc-500">This can&apos;t be undone.</p>
+          <p className="truncate text-sm font-medium text-[#f4f4f5]">Delete &quot;{foodName}&quot;?</p>
+          <p className="text-xs text-[#71717a]">This can&apos;t be undone.</p>
         </div>
         <button
           onClick={() => setConfirming(false)}
           disabled={deleting}
-          className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300"
+          className="rounded-lg bg-[#18181b] px-3 py-1.5 text-xs font-medium text-[#d4d4d8]"
         >
           Cancel
         </button>
@@ -71,18 +77,19 @@ export default function FoodLogItem({
   }
 
   return (
-    <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900 p-3">
+    <div className="flex items-center gap-3 border-b border-[#1a1a1d] py-3">
+      {time && <span className="w-11 shrink-0 text-[11px] tabular-nums text-[#52525b]">{time}</span>}
       <ScoreBadge score={score} size="sm" />
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{foodName}</p>
-        <p className="text-xs text-zinc-500">
-          {calories} calories · {Math.round(proteinG)}g protein
+        <p className="truncate text-sm font-medium text-[#f4f4f5]">{foodName}</p>
+        <p className="mt-0.5 text-xs tabular-nums text-[#71717a]">
+          {calories} cal · {Math.round(proteinG)}g protein
         </p>
       </div>
       <button
         onClick={() => setConfirming(true)}
         aria-label={`Delete ${foodName}`}
-        className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800 active:text-red-400"
+        className="shrink-0 rounded-lg px-2 py-1 text-xs font-medium text-[#52525b] active:text-red-400"
       >
         Remove
       </button>

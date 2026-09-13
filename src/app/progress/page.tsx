@@ -183,75 +183,91 @@ export default function ProgressPage() {
 
   const history = [...measurements].sort((a, b) => (a.logged_at < b.logged_at ? 1 : -1));
 
+  const latest = chartData.length ? chartData[chartData.length - 1] : null;
+  const prior = chartData.length > 1 ? chartData[chartData.length - 2] : null;
+  const delta = latest && prior ? latest.weight - prior.weight : null;
+
   return (
     <PullToRefresh onRefresh={load}>
-    <div className="mx-auto max-w-md px-5 py-8 pb-8">
-      <h1 className="text-2xl font-bold">Progress</h1>
-
-      <div className="mt-5 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-        <p className="mb-3 text-sm font-semibold text-zinc-300">Today&apos;s numbers</p>
-        <input
-          type="number"
-          placeholder="Weight (lb)"
-          value={weight}
-          onChange={(e) => setWeight(e.target.value)}
-          className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
-        />
-        <button
-          onClick={logMeasurement}
-          disabled={saving || !weight}
-          className="mt-3 w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
-        >
-          {saving ? "Saving..." : "Log"}
-        </button>
-        {saveError && <p className="mt-2 text-sm text-red-400">{saveError}</p>}
-        <p className="mt-2 text-xs text-zinc-500">
-          Logging today again updates today&apos;s entry instead of adding a duplicate.
-        </p>
-      </div>
-
-      {chartData.length > 1 && (
-        <div className="mt-5 h-48 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-          <p className="mb-2 text-sm font-semibold text-zinc-300">Weight trend</p>
-          <ResponsiveContainer width="100%" height="85%">
-            <LineChart data={chartData}>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#71717a" }} />
-              <YAxis
-                domain={["dataMin - 3", "dataMax + 3"]}
-                tick={{ fontSize: 10, fill: "#71717a" }}
-                width={30}
-              />
-              <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #3f3f46" }} />
-              <Line type="monotone" dataKey="weight" stroke="#22c55e" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+    <div className="mx-auto max-w-md px-5 py-7 pb-8">
+      <h1 className="text-xl font-bold tracking-tight">Progress</h1>
 
       <div className="mt-6">
-        <p className="mb-3 text-sm font-semibold text-zinc-300">History</p>
-        {loading && <p className="text-sm text-zinc-500">Loading...</p>}
+        <div className="flex items-baseline justify-between">
+          <span className="text-sm font-semibold text-[#e4e4e7]">Weight</span>
+          {latest && <span className="text-xs text-[#52525b]">Latest entries</span>}
+        </div>
+
+        {latest ? (
+          <div className="mt-1.5 flex items-baseline gap-2">
+            <span className="text-[34px] font-bold tracking-tight tabular-nums">{latest.weight}</span>
+            <span className="text-sm text-[#71717a]">lb</span>
+            {delta != null && (
+              <span
+                className="ml-0.5 text-sm font-semibold tabular-nums"
+                style={{ color: delta <= 0 ? "#34d399" : "#f59e0b" }}
+              >
+                {delta <= 0 ? "↓" : "↑"} {Math.abs(delta).toFixed(1)} lb
+              </span>
+            )}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-[#71717a]">No entries yet — log today&apos;s weight below.</p>
+        )}
+
+        {chartData.length > 1 && (
+          <div className="mt-2 h-28">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#52525b" }} axisLine={false} tickLine={false} />
+                <YAxis hide domain={["dataMin - 3", "dataMax + 3"]} />
+                <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #27272a", borderRadius: 8 }} />
+                <Line type="monotone" dataKey="weight" stroke="#10b981" strokeWidth={2.5} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        <div className="mt-4 flex gap-2">
+          <input
+            type="number"
+            placeholder="Log today's weight (lb)"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            className="min-w-0 flex-1 rounded-xl border border-[#27272a] bg-[#111113] px-3 py-2.5 text-sm outline-none focus:border-emerald-500"
+          />
+          <button
+            onClick={logMeasurement}
+            disabled={saving || !weight}
+            className="shrink-0 rounded-xl bg-[#10b981] px-5 py-2.5 text-sm font-semibold text-[#052e1c] disabled:opacity-60"
+          >
+            {saving ? "..." : "Log"}
+          </button>
+        </div>
+        {saveError && <p className="mt-2 text-sm text-red-400">{saveError}</p>}
+      </div>
+
+      <div className="mt-7">
+        <p className="text-sm font-semibold text-[#e4e4e7]">History</p>
+        {loading && <p className="mt-3 text-sm text-[#71717a]">Loading...</p>}
         {!loading && history.length === 0 && (
-          <p className="rounded-2xl border border-dashed border-zinc-800 py-6 text-center text-sm text-zinc-500">
+          <p className="mt-3 rounded-2xl border border-dashed border-[#27272a] py-6 text-center text-sm text-[#71717a]">
             No entries yet — log today&apos;s weight above to start your history.
           </p>
         )}
         {history.length > 0 && (
-          <div className="space-y-2">
+          <div className="mt-1">
             {history.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center justify-between rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3"
-              >
+              <div key={m.id} className="flex items-center justify-between border-b border-[#1a1a1d] py-3">
                 <div>
-                  <p className="text-sm font-semibold text-zinc-100">
+                  <p className="text-sm font-medium tabular-nums text-[#f4f4f5]">
                     {m.weight_lb != null ? `${m.weight_lb} lb` : "No weight logged"}
                   </p>
-                  <p className="text-xs text-zinc-500">{formatDate(m.logged_at)}</p>
+                  <p className="text-xs text-[#71717a]">{formatDate(m.logged_at)}</p>
                 </div>
                 <button
                   onClick={() => deleteMeasurement(m.id)}
-                  className="text-xs font-medium text-zinc-500 active:opacity-70"
+                  className="text-xs font-medium text-[#52525b] active:opacity-70"
                 >
                   Remove
                 </button>
@@ -261,20 +277,20 @@ export default function ProgressPage() {
         )}
       </div>
 
-      <div className="mt-6">
-        <p className="mb-3 text-sm font-semibold text-zinc-300">Journal</p>
-        <div className="space-y-2">
+      <div className="mt-7">
+        <p className="text-sm font-semibold text-[#e4e4e7]">Journal</p>
+        <div className="mt-3 space-y-2">
           <textarea
             value={journalDraft}
             onChange={(e) => setJournalDraft(e.target.value)}
             placeholder="How's training going? How do you feel today?"
             rows={3}
-            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            className="w-full resize-none rounded-xl border border-[#27272a] bg-[#111113] px-3 py-2 text-sm outline-none focus:border-emerald-500"
           />
           <button
             onClick={addJournalEntry}
             disabled={journalSaving || !journalDraft.trim()}
-            className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+            className="w-full rounded-xl bg-[#10b981] py-2.5 text-sm font-semibold text-[#052e1c] disabled:opacity-60"
           >
             {journalSaving ? "Saving..." : "Add entry"}
           </button>
@@ -282,34 +298,34 @@ export default function ProgressPage() {
         </div>
 
         {journal.length > 0 && (
-          <div className="mt-4 space-y-2">
+          <div className="mt-2">
             {journal.map((entry) => (
-              <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+              <div key={entry.id} className="border-b border-[#1a1a1d] py-3">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-xs font-medium text-zinc-500">{formatDateTime(entry.created_at)}</p>
+                  <p className="text-xs font-medium text-[#52525b]">{formatDateTime(entry.created_at)}</p>
                   <button
                     onClick={() => deleteJournalEntry(entry.id)}
-                    className="shrink-0 text-xs font-medium text-zinc-500 active:opacity-70"
+                    className="shrink-0 text-xs font-medium text-[#52525b] active:opacity-70"
                   >
                     Remove
                   </button>
                 </div>
-                <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-200">{entry.entry_text}</p>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-[#e4e4e7]">{entry.entry_text}</p>
               </div>
             ))}
           </div>
         )}
       </div>
 
-      <div className="mt-6">
-        <p className="mb-3 text-sm font-semibold text-zinc-300">Progress photos</p>
-        <div className="mb-3 flex gap-2">
+      <div className="mt-7">
+        <p className="text-sm font-semibold text-[#e4e4e7]">Progress photos</p>
+        <div className="mt-3 mb-3 flex gap-2">
           {(["front", "side", "back"] as Angle[]).map((a) => (
             <button
               key={a}
               onClick={() => setAngle(a)}
               className={`rounded-full px-3 py-1 text-xs font-medium capitalize ${
-                angle === a ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-400"
+                angle === a ? "bg-[#10b981] text-[#052e1c]" : "bg-[#111113] text-[#a1a1aa] border border-[#27272a]"
               }`}
             >
               {a}
@@ -317,7 +333,7 @@ export default function ProgressPage() {
           ))}
         </div>
         <div className="flex gap-2">
-          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 py-6 text-sm text-zinc-400 active:bg-zinc-900">
+          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-[#27272a] py-6 text-sm text-[#a1a1aa] active:bg-[#111113]">
             {uploading ? "Uploading..." : `Take ${angle} photo`}
             <input
               type="file"
@@ -327,7 +343,7 @@ export default function ProgressPage() {
               onChange={(e) => e.target.files?.[0] && uploadPhoto(e.target.files[0])}
             />
           </label>
-          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 py-6 text-sm text-zinc-400 active:bg-zinc-900">
+          <label className="flex flex-1 items-center justify-center rounded-2xl border-2 border-dashed border-[#27272a] py-6 text-sm text-[#a1a1aa] active:bg-[#111113]">
             {uploading ? "Uploading..." : "Choose from library"}
             <input
               type="file"
@@ -348,7 +364,7 @@ export default function ProgressPage() {
                 alt={`${p.angle} progress photo from ${p.taken_at}`}
                 className="aspect-square w-full rounded-xl object-cover"
               />
-              <p className="mt-1 text-center text-[10px] text-zinc-500">{formatDate(p.taken_at)}</p>
+              <p className="mt-1 text-center text-[10px] text-[#52525b]">{formatDate(p.taken_at)}</p>
             </div>
           ))}
         </div>
