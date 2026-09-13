@@ -79,12 +79,23 @@ export default function MuscleMapOverlay({
                     key={i}
                     points={poly.map((p) => p.join(",")).join(" ")}
                     fill={fill}
-                    fillOpacity={0.62}
-                    stroke={fill}
-                    strokeOpacity={0.85}
-                    strokeWidth={2}
+                    // "color" blend mode keeps the underlying artwork's own
+                    // shading/highlights (luminosity) and only swaps in the
+                    // rank's hue + saturation — so the muscle itself reads as
+                    // tinted, not a flat colored shape sitting on top of it.
+                    style={{ mixBlendMode: "color", cursor: onSelect ? "pointer" : undefined }}
                     onClick={onSelect ? () => onSelect(muscle) : undefined}
-                    style={onSelect ? { cursor: "pointer" } : undefined}
+                  />
+                ))}
+                {polys.map((poly, i) => (
+                  <polygon
+                    key={`glow-${i}`}
+                    points={poly.map((p) => p.join(",")).join(" ")}
+                    fill="none"
+                    stroke={fill}
+                    strokeOpacity={0.9}
+                    strokeWidth={2.5}
+                    style={{ mixBlendMode: "screen", pointerEvents: "none" }}
                   />
                 ))}
               </g>
