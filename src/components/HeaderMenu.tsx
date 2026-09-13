@@ -14,12 +14,26 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("settings");
   const [signingOut, setSigningOut] = useState(false);
+  const [initialized, setInitialized] = useState(false);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
 
   const [comments, setComments] = useState<Feedback[] | null>(null);
   const [loadingComments, setLoadingComments] = useState(false);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+
+  const [username, setUsername] = useState("");
+  const [usernameInput, setUsernameInput] = useState("");
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [devCode, setDevCode] = useState("");
+  const [devError, setDevError] = useState<string | null>(null);
+  const [devBusy, setDevBusy] = useState(false);
 
   async function loadComments() {
     setLoadingComments(true);
@@ -39,6 +53,31 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
     }
   }
 
+  async function initOnce() {
+    if (initialized) return;
+    setInitialized(true);
+
+    const { data: userRes } = await supabase.auth.getUser();
+    const uid = userRes.user?.id ?? null;
+    setMyUserId(uid);
+
+    if (uid) {
+      const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", uid).maybeSingle();
+      if (profile?.username) {
+        setUsername(profile.username);
+        setUsernameInput(profile.username);
+      }
+    }
+
+    try {
+      const res = await fetch("/api/admin/status");
+      const body = await res.json();
+      setIsAdmin(!!body.isAdmin);
+    } catch {
+      // Not critical — dev mode just won't show as unlocked.
+    }
+  }
+
   function selectTab(next: Tab) {
     setTab(next);
     if (next === "feedback" && comments === null) loadComments();
@@ -47,6 +86,61 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
   function openMenu() {
     setOpen(true);
     setTab("settings");
+    initOnce();
+  }
+
+  async function saveUsername() {
+    const next = usernameInput.trim();
+    if (!next || next === username) return;
+    setSavingUsername(true);
+    setUsernameError(null);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setUsernameError("Not signed in");
+      setSavingUsername(false);
+      return;
+    }
+    const { error } = await supabase.from("profiles").upsert({ user_id: user.id, username: next });
+    setSavingUsername(false);
+    if (error) {
+      setUsernameError(
+        error.message.includes("duplicate") || error.message.includes("unique")
+          ? "That username is already taken"
+          : error.message
+      );
+      return;
+    }
+    setUsername(next);
+  }
+
+  async function verifyDevCode() {
+    setDevBusy(true);
+    setDevError(null);
+    try {
+      const res = await fetch("/api/admin/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: devCode }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setDevError(body.error || "Incorrect code");
+        return;
+      }
+      setIsAdmin(true);
+      setDevCode("");
+    } catch {
+      setDevError("Couldn't reach the server");
+    } finally {
+      setDevBusy(false);
+    }
+  }
+
+  async function exitDevMode() {
+    await fetch("/api/admin/verify", { method: "DELETE" });
+    setIsAdmin(false);
   }
 
   async function submitComment() {
@@ -72,6 +166,33 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
     } finally {
       setPosting(false);
     }
+  }
+
+  async function deleteOwnComment(id: string) {
+    await supabase.from("feedback").delete().eq("id", id);
+    await loadComments();
+  }
+
+  async function deleteAsAdmin(id: string) {
+    await fetch(`/api/admin/comments/${id}`, { method: "DELETE" });
+    await loadComments();
+  }
+
+  function startEditComment(c: Feedback) {
+    setEditingId(c.id);
+    setEditDraft(c.message);
+  }
+
+  async function saveEditComment(id: string) {
+    const message = editDraft.trim();
+    if (!message) return;
+    await fetch(`/api/admin/comments/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message }),
+    });
+    setEditingId(null);
+    await loadComments();
   }
 
   async function signOut() {
@@ -122,6 +243,31 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
               {tab === "settings" && (
                 <div className="space-y-4 pb-4">
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+                    <p className="text-sm font-semibold text-zinc-300">Username</p>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Shown on Comments and Community instead of your email.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <input
+                        type="text"
+                        value={usernameInput}
+                        onChange={(e) => setUsernameInput(e.target.value)}
+                        placeholder="Pick a username"
+                        maxLength={24}
+                        className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        onClick={saveUsername}
+                        disabled={savingUsername || !usernameInput.trim() || usernameInput.trim() === username}
+                        className="shrink-0 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black disabled:opacity-60"
+                      >
+                        {savingUsername ? "Saving..." : "Save"}
+                      </button>
+                    </div>
+                    {usernameError && <p className="mt-2 text-xs text-red-400">{usernameError}</p>}
+                  </div>
+
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
                     <p className="text-sm font-semibold text-zinc-300">Current goal</p>
                     <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
                       <Stat label="Phase" value={goal.phase} capitalize />
@@ -148,6 +294,45 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                   >
                     {signingOut ? "Signing out..." : "Sign out"}
                   </button>
+
+                  <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+                    <p className="text-sm font-semibold text-zinc-300">Developer</p>
+                    {isAdmin ? (
+                      <>
+                        <p className="mt-1 text-xs text-emerald-400">Developer mode unlocked ✓</p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          You can now delete or edit any comment/community post.
+                        </p>
+                        <button
+                          onClick={exitDevMode}
+                          className="mt-3 w-full rounded-xl bg-zinc-800 py-2 text-xs font-semibold text-zinc-300"
+                        >
+                          Exit developer mode
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <p className="mt-1 text-xs text-zinc-500">Enter the developer code to moderate content.</p>
+                        <div className="mt-3 flex gap-2">
+                          <input
+                            type="password"
+                            value={devCode}
+                            onChange={(e) => setDevCode(e.target.value)}
+                            placeholder="Developer code"
+                            className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                          />
+                          <button
+                            onClick={verifyDevCode}
+                            disabled={devBusy || !devCode}
+                            className="shrink-0 rounded-xl bg-zinc-800 px-4 py-2 text-sm font-semibold text-zinc-200 disabled:opacity-60"
+                          >
+                            {devBusy ? "..." : "Unlock"}
+                          </button>
+                        </div>
+                        {devError && <p className="mt-2 text-xs text-red-400">{devError}</p>}
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -159,16 +344,17 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                     Cutting and maintaining favor higher-protein, lower-calorie-density choices instead.
                   </InfoCard>
                   <InfoCard title="Streak">
-                    Your flame grows on a day you log food <em>and</em> stay on pace for your weekly gym
-                    target. Streak freezes (bought with XP from the flame panel) auto-cover a missed day.
+                    Your flame sparks the same day you log food OR a training session — no weekly quota
+                    to hit first. Logging more in one day earns escalating XP too. Streak freezes (bought
+                    with XP from the flame panel) auto-cover a missed day.
                   </InfoCard>
                   <InfoCard title="Home screen widget">
                     Open the flame in the top right of the diary tab for the Scriptable widget setup —
                     it shows your streak on the home screen without opening the app.
                   </InfoCard>
-                  <InfoCard title="Comments">
-                    Use the Comments tab to leave feedback or bugs — anyone using this app can read and
-                    post there.
+                  <InfoCard title="Comments & Community">
+                    Comments is feedback for the app itself; Community is an open, AI-moderated thread
+                    for general discussion. You can delete your own posts in either one.
                   </InfoCard>
                   <p className="pt-1 text-center text-xs text-zinc-600">lifeform scanner</p>
                 </div>
@@ -200,19 +386,72 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                     {!loadingComments && comments?.length === 0 && (
                       <p className="text-sm text-zinc-500">No comments yet — be the first.</p>
                     )}
-                    {comments?.map((c) => (
-                      <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
-                        <div className="flex items-baseline justify-between gap-2">
-                          <p className="truncate text-xs font-semibold text-zinc-400">
-                            {c.author_email || "Someone"}
-                          </p>
-                          <p className="shrink-0 text-[11px] text-zinc-600">
-                            {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
-                          </p>
+                    {comments?.map((c) => {
+                      const canDelete = isAdmin || c.user_id === myUserId;
+                      const isEditing = editingId === c.id;
+                      return (
+                        <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
+                          <div className="flex items-baseline justify-between gap-2">
+                            <p className="truncate text-xs font-semibold text-zinc-400">
+                              {c.author_username || c.author_email || "Someone"}
+                            </p>
+                            <p className="shrink-0 text-[11px] text-zinc-600">
+                              {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                            </p>
+                          </div>
+
+                          {isEditing ? (
+                            <div className="mt-2 space-y-2">
+                              <textarea
+                                value={editDraft}
+                                onChange={(e) => setEditDraft(e.target.value)}
+                                rows={3}
+                                className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm outline-none focus:border-emerald-500"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => saveEditComment(c.id)}
+                                  className="rounded-lg bg-emerald-500 px-3 py-1 text-xs font-semibold text-black"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  onClick={() => setEditingId(null)}
+                                  className="rounded-lg bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{c.message}</p>
+                          )}
+
+                          {!isEditing && (canDelete || isAdmin) && (
+                            <div className="mt-2 flex gap-3">
+                              {canDelete && (
+                                <button
+                                  onClick={() =>
+                                    isAdmin && c.user_id !== myUserId ? deleteAsAdmin(c.id) : deleteOwnComment(c.id)
+                                  }
+                                  className="text-xs font-medium text-zinc-500 active:opacity-70"
+                                >
+                                  Delete
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => startEditComment(c)}
+                                  className="text-xs font-medium text-zinc-500 active:opacity-70"
+                                >
+                                  Edit
+                                </button>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-200">{c.message}</p>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}

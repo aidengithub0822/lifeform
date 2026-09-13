@@ -120,10 +120,45 @@ create table if not exists public.feedback (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   author_email text,
+  author_username text,
   message text not null,
   created_at timestamptz not null default now()
 );
 create index if not exists feedback_time_idx on public.feedback (created_at desc);
+-- Existing installs: add the column if the table already existed pre-username.
+alter table public.feedback add column if not exists author_username text;
+
+-- One row per user: a chosen display name shown instead of their email
+-- anywhere other users can see it (comments, community). Username itself
+-- is NOT used for login — auth stays email+password.
+create table if not exists public.profiles (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  username text not null unique,
+  updated_at timestamptz not null default now()
+);
+
+-- Free-form dated journal entries, shown on the Progress tab. Multiple
+-- entries per day are allowed (unlike measurements, which are one-per-day).
+create table if not exists public.journal_entries (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  entry_text text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists journal_entries_user_time_idx on public.journal_entries (user_id, created_at desc);
+
+-- A single shared, AI-moderated community discussion feed — separate from
+-- the per-user "Comments" feedback wall. Every post is checked by the AI
+-- moderator BEFORE it's inserted, so nothing that fails moderation is ever
+-- stored (nothing to "hide" later, it just never lands here).
+create table if not exists public.community_posts (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  author_username text,
+  message text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists community_posts_time_idx on public.community_posts (created_at desc);
 
 -- Row Level Security: every table is private to its own user.
 alter table public.goals enable row level security;
@@ -135,12 +170,15 @@ alter table public.progress_photos enable row level security;
 alter table public.workouts enable row level security;
 alter table public.streaks enable row level security;
 alter table public.feedback enable row level security;
+alter table public.profiles enable row level security;
+alter table public.journal_entries enable row level security;
+alter table public.community_posts enable row level security;
 
 do $$
 declare
   t text;
 begin
-  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks'])
+  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks','journal_entries'])
   loop
     execute format('drop policy if exists "owner_all" on public.%I', t);
     execute format(
@@ -160,6 +198,43 @@ create policy "feedback_select_all" on public.feedback
 drop policy if exists "feedback_insert_own" on public.feedback;
 create policy "feedback_insert_own" on public.feedback
   for insert with check (auth.uid() = user_id);
+
+-- Added so users can delete their own comments (previously missing entirely,
+-- so nobody — not even the author — could delete one via the normal client).
+-- The "developer code" delete-any-comment path in Settings goes through the
+-- service-role admin client server-side instead, which bypasses RLS.
+drop policy if exists "feedback_delete_own" on public.feedback;
+create policy "feedback_delete_own" on public.feedback
+  for delete using (auth.uid() = user_id);
+
+-- profiles: any signed-in user can look up usernames (needed to render
+-- other people's names on comments/community posts), but you can only
+-- create/update your own.
+drop policy if exists "profiles_select_all" on public.profiles;
+create policy "profiles_select_all" on public.profiles
+  for select using (auth.uid() is not null);
+
+drop policy if exists "profiles_upsert_own" on public.profiles;
+create policy "profiles_upsert_own" on public.profiles
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_update_own" on public.profiles
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- community_posts: same shape as feedback — readable by anyone signed in,
+-- postable/deletable only as yourself (plus the admin/service-role path).
+drop policy if exists "community_select_all" on public.community_posts;
+create policy "community_select_all" on public.community_posts
+  for select using (auth.uid() is not null);
+
+drop policy if exists "community_insert_own" on public.community_posts;
+create policy "community_insert_own" on public.community_posts
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "community_delete_own" on public.community_posts;
+create policy "community_delete_own" on public.community_posts
+  for delete using (auth.uid() = user_id);
 
 -- Storage buckets for food photos and progress photos.
 insert into storage.buckets (id, name, public)

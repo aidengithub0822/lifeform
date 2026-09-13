@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { CATEGORIES, WORKOUTS, type MuscleCategory } from "@/lib/workoutCatalog";
+import XpSparkToast from "@/components/XpSparkToast";
 
 type Sex = "male" | "female";
 
@@ -11,12 +12,17 @@ export default function FitnessPage() {
   const [category, setCategory] = useState<MuscleCategory | null>(null);
   const [logged, setLogged] = useState(false);
   const [logging, setLogging] = useState(false);
+  const [sparkXp, setSparkXp] = useState<number | null>(null);
 
   async function logWorkout() {
     setLogging(true);
     try {
       const res = await fetch("/api/workouts", { method: "POST" });
-      if (res.ok) setLogged(true);
+      if (res.ok) {
+        const body = await res.json();
+        setLogged(true);
+        if (body.spark) setSparkXp(body.spark.xpEarned);
+      }
     } finally {
       setLogging(false);
     }
@@ -24,6 +30,7 @@ export default function FitnessPage() {
 
   return (
     <div className="mx-auto max-w-md px-5 py-8">
+      <XpSparkToast xp={sparkXp} onDone={() => setSparkXp(null)} />
       <Link href="/" className="text-sm font-medium text-emerald-400">
         ← Back
       </Link>

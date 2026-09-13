@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { tierMeta, FREEZE_COST_XP, MAX_FREEZES, type FlameTier } from "@/lib/streak";
+import XpSparkToast from "@/components/XpSparkToast";
 
 interface StreakData {
   currentStreak: number;
@@ -12,9 +13,8 @@ interface StreakData {
   widgetToken: string;
   today: {
     loggedFoodToday: boolean;
-    gymCountThisWeek: number;
-    gymTarget: number;
-    onTrackToGrow: boolean;
+    workoutToday: boolean;
+    grownToday: boolean;
   };
 }
 
@@ -40,6 +40,7 @@ export default function Flame() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sparkXp, setSparkXp] = useState<number | null>(null);
 
   async function load() {
     const res = await fetch("/api/streak");
@@ -57,7 +58,11 @@ export default function Flame() {
 
   async function logWorkoutToday() {
     setBusy(true);
-    await fetch("/api/workouts", { method: "POST" });
+    const res = await fetch("/api/workouts", { method: "POST" });
+    if (res.ok) {
+      const body = await res.json();
+      if (body.spark) setSparkXp(body.spark.xpEarned);
+    }
     await load();
     setBusy(false);
   }
@@ -80,11 +85,12 @@ export default function Flame() {
 
   return (
     <>
+      <XpSparkToast xp={sparkXp} onDone={() => setSparkXp(null)} />
       <button
         onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 rounded-full border border-zinc-800 bg-zinc-900 px-3 py-1.5"
       >
-        <FlameIcon color={meta.color} lit={data.today.loggedFoodToday} />
+        <FlameIcon color={meta.color} lit={data.today.grownToday} />
         <span className="text-sm font-bold" style={{ color: meta.color }}>
           {data.currentStreak}
         </span>
@@ -101,7 +107,7 @@ export default function Flame() {
           >
             <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-zinc-700" />
             <div className="flex flex-col items-center">
-              <FlameIcon color={meta.color} lit={data.today.loggedFoodToday} size={56} />
+              <FlameIcon color={meta.color} lit={data.today.grownToday} size={56} />
               <p className="mt-2 text-3xl font-extrabold" style={{ color: meta.color }}>
                 {data.currentStreak} day{data.currentStreak === 1 ? "" : "s"}
               </p>
@@ -110,25 +116,11 @@ export default function Flame() {
 
             <div className="mt-6 space-y-3 rounded-2xl bg-zinc-900 p-4">
               <Row label="Food logged today" value={data.today.loggedFoodToday ? "Yes ✅" : "Not yet"} />
-              <Row
-                label="Gym days this week"
-                value={`${data.today.gymCountThisWeek} / ${data.today.gymTarget}`}
-              />
-              <div className="h-2 w-full overflow-hidden rounded-full bg-zinc-800">
-                <div
-                  className="h-full rounded-full bg-emerald-500 transition-all"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      (data.today.gymCountThisWeek / data.today.gymTarget) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
+              <Row label="Trained today" value={data.today.workoutToday ? "Yes ✅" : "Not yet"} />
               <p className="text-xs text-zinc-500">
-                {data.today.onTrackToGrow
-                  ? "You're on track — the flame grows today."
-                  : "Log food + hit your weekly gym target to keep the flame growing."}
+                {data.today.grownToday
+                  ? "Sparked — today already grew the flame."
+                  : "Log a meal or a training session to spark the flame today."}
               </p>
             </div>
 

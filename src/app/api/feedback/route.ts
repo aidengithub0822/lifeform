@@ -34,9 +34,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Keep it under 2000 characters" }, { status: 400 });
   }
 
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
   const { error } = await supabase.from("feedback").insert({
     user_id: user.id,
     author_email: user.email ?? null,
+    author_username: profile?.username ?? null,
     message,
   });
 

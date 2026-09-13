@@ -19,13 +19,19 @@ const items = [
     title: "Fitness",
     desc: "Workouts by muscle group",
   },
+  {
+    href: "/community",
+    icon: "🌐",
+    title: "Community",
+    desc: "AI-moderated discussion",
+  },
 ];
 
 export default function ExploreGrid() {
   return (
     <div className="mt-6">
       <p className="mb-3 text-sm font-semibold text-zinc-300">More to explore</p>
-      <div className="grid grid-cols-3 gap-2.5">
+      <div className="grid grid-cols-2 gap-2.5">
         {items.map((item) => (
           <Link
             key={item.href}

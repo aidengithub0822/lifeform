@@ -1,14 +1,16 @@
 // Pure streak/flame/XP logic — no I/O, so it's easy to reason about and test.
 //
-// Rule (per the product spec): the flame only GROWS on a day where the user
-// (a) logged food that day, AND (b) hit at least MIN_GYM_DAYS_PER_WEEK gym
-// check-ins in the trailing 7 days (including that day). If a day misses
-// either condition, a streak freeze auto-covers it if one is available;
-// otherwise the streak resets to 0.
+// Rule: the flame grows on ANY day you log food OR check in a workout — a
+// daily spark, not a weekly quota. If a day has neither, a streak freeze
+// auto-covers it if one is available; otherwise the streak resets to 0.
+// XP for logging itself is awarded immediately per log (see
+// sparkXpForLogNumber), escalating with how many qualifying logs you've
+// already done that same day, so logging more earns more.
 
-export const MIN_GYM_DAYS_PER_WEEK = 4;
-export const XP_PER_STREAK_DAY = 15;
-export const XP_PER_FOOD_LOG_OFF_STREAK = 2; // small reward even if the day didn't extend the streak
+export const XP_PER_STREAK_DAY = 15; // bonus awarded once, the first time a day is confirmed grown
+export const XP_SPARK_BASE = 10; // XP for the 1st qualifying log of the day
+export const XP_SPARK_INCREMENT = 5; // extra XP for each additional log that same day
+export const XP_SPARK_CAP = 40; // per-log XP never exceeds this, however many logs deep
 export const FREEZE_COST_XP = 150;
 export const MAX_FREEZES = 3;
 
@@ -34,23 +36,15 @@ export function tierMeta(tier: FlameTier) {
   return FLAME_TIERS.find((t) => t.tier === tier) ?? FLAME_TIERS[0];
 }
 
-function toDateOnly(d: string | Date): string {
-  const date = typeof d === "string" ? new Date(d + "T00:00:00Z") : d;
-  return date.toISOString().slice(0, 10);
+/** XP for the nth (1-indexed) qualifying log of a single day — escalates, then caps. */
+export function sparkXpForLogNumber(n: number): number {
+  return Math.min(XP_SPARK_BASE + (Math.max(n, 1) - 1) * XP_SPARK_INCREMENT, XP_SPARK_CAP);
 }
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(dateStr + "T00:00:00Z");
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
-}
-
-function gymCountInTrailingWeek(day: string, workoutDates: Set<string>): number {
-  let count = 0;
-  for (let i = 0; i < 7; i++) {
-    if (workoutDates.has(addDays(day, -i))) count++;
-  }
-  return count;
 }
 
 export interface StreakState {
@@ -60,7 +54,7 @@ export interface StreakState {
   flameTier: FlameTier;
   freezesAvailable: number;
   frozenDates: string[];
-  lastCheckedDate: string | null; // last fully-reconciled past day (never today)
+  lastCheckedDate: string | null; // last day whose growth/freeze/break decision is finalized — CAN be today
 }
 
 export interface ReconcileResult extends StreakState {
@@ -70,9 +64,10 @@ export interface ReconcileResult extends StreakState {
 }
 
 /**
- * Walks forward day-by-day from the last checked date through yesterday
- * (today is always left "in progress" and reconciled on a future call),
- * applying the growth/freeze/reset rule to each day.
+ * Walks forward day-by-day from the last checked date through yesterday,
+ * finalizing each PAST day as grown/frozen/broken. Today is deliberately
+ * left alone here — see growToday — since today isn't over yet and
+ * shouldn't be marked broken just because nothing's been logged so far.
  */
 export function reconcileStreak(
   prior: StreakState,
@@ -86,35 +81,18 @@ export function reconcileStreak(
   let daysFrozen = 0;
   let daysGrown = 0;
 
-  // First day to evaluate: the day after lastCheckedDate, or 120 days ago if never checked
-  // (caps how far back a brand-new account looks).
   let cursor = prior.lastCheckedDate ? addDays(prior.lastCheckedDate, 1) : addDays(todayStr, -120);
   const yesterday = addDays(todayStr, -1);
 
   while (cursor <= yesterday) {
-    const loggedFood = foodDates.has(cursor);
-    const gymCount = gymCountInTrailingWeek(cursor, workoutDates);
-    const metGrowthBar = loggedFood && gymCount >= MIN_GYM_DAYS_PER_WEEK;
+    const grown = foodDates.has(cursor) || workoutDates.has(cursor);
 
-    if (metGrowthBar) {
+    if (grown) {
       currentStreak += 1;
       xp += XP_PER_STREAK_DAY;
       longestStreak = Math.max(longestStreak, currentStreak);
       daysGrown += 1;
-    } else if (loggedFood) {
-      // Logged food but didn't hit the gym target — small consolation XP,
-      // streak doesn't grow but also isn't broken by this alone.
-      xp += XP_PER_FOOD_LOG_OFF_STREAK;
-      if (freezesAvailable > 0) {
-        freezesAvailable -= 1;
-        frozenDates.push(cursor);
-        daysFrozen += 1;
-      } else {
-        currentStreak = 0;
-        daysBroken += 1;
-      }
     } else if (freezesAvailable > 0) {
-      // No food logged at all that day — still coverable by a freeze.
       freezesAvailable -= 1;
       frozenDates.push(cursor);
       daysFrozen += 1;
@@ -140,17 +118,34 @@ export function reconcileStreak(
   };
 }
 
-/** Live (not-yet-locked-in) status for today, shown in the UI before the day ends. */
-export function todayStatus(foodDates: Set<string>, workoutDates: Set<string>, todayStr: string) {
-  const loggedFoodToday = foodDates.has(todayStr);
-  const gymCountThisWeek = gymCountInTrailingWeek(todayStr, workoutDates);
-  const onTrackToGrow = loggedFoodToday && gymCountThisWeek >= MIN_GYM_DAYS_PER_WEEK;
+/**
+ * Finalizes TODAY as grown, immediately, the first time it qualifies
+ * (food logged or workout checked in) — this is what makes the flame
+ * "spark" the same day instead of waiting until tomorrow's reconcile.
+ * Idempotent: calling it again the same day (already finalized) is a no-op.
+ */
+export function growToday(prior: StreakState, todayStr: string): StreakState {
+  if (prior.lastCheckedDate === todayStr) return prior; // already grown today
+  const currentStreak = prior.currentStreak + 1;
   return {
-    loggedFoodToday,
-    gymCountThisWeek,
-    gymTarget: MIN_GYM_DAYS_PER_WEEK,
-    onTrackToGrow,
+    ...prior,
+    currentStreak,
+    longestStreak: Math.max(prior.longestStreak, currentStreak),
+    xp: prior.xp + XP_PER_STREAK_DAY,
+    flameTier: tierForStreak(currentStreak),
+    lastCheckedDate: todayStr,
   };
 }
 
-export { toDateOnly, addDays };
+/** Live status for today, shown in the UI. */
+export function todayStatus(foodDates: Set<string>, workoutDates: Set<string>, todayStr: string) {
+  const loggedFoodToday = foodDates.has(todayStr);
+  const workoutToday = workoutDates.has(todayStr);
+  return {
+    loggedFoodToday,
+    workoutToday,
+    grownToday: loggedFoodToday || workoutToday,
+  };
+}
+
+export { addDays };

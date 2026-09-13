@@ -85,6 +85,28 @@ export interface Feedback {
   id: string;
   user_id: string;
   author_email: string | null;
+  author_username: string | null;
+  message: string;
+  created_at: string;
+}
+
+export interface Profile {
+  user_id: string;
+  username: string;
+  updated_at: string;
+}
+
+export interface JournalEntry {
+  id: string;
+  user_id: string;
+  entry_text: string;
+  created_at: string;
+}
+
+export interface CommunityPost {
+  id: string;
+  user_id: string;
+  author_username: string | null;
   message: string;
   created_at: string;
 }

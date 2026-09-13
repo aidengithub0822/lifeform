@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ScoreBadge from "@/components/ScoreBadge";
+import XpSparkToast from "@/components/XpSparkToast";
 
 interface ScanResult {
   food_name: string;
@@ -69,6 +70,7 @@ export default function ScanPage() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [sparkXp, setSparkXp] = useState<number | null>(null);
 
   async function handleFile(file: File) {
     setError(null);
@@ -165,8 +167,28 @@ export default function ScanPage() {
       setError(error.message);
       return;
     }
-    router.push("/");
-    router.refresh();
+
+    let xpEarned = 0;
+    try {
+      const sparkRes = await fetch("/api/streak/spark", { method: "POST" });
+      if (sparkRes.ok) {
+        const spark = await sparkRes.json();
+        xpEarned = spark.xpEarned;
+      }
+    } catch {
+      // Spark XP is a nice-to-have — never block navigation on it failing.
+    }
+
+    if (xpEarned > 0) {
+      setSparkXp(xpEarned);
+      setTimeout(() => {
+        router.push("/");
+        router.refresh();
+      }, 900);
+    } else {
+      router.push("/");
+      router.refresh();
+    }
   }
 
   function reset() {
@@ -189,6 +211,7 @@ export default function ScanPage() {
 
   return (
     <div className="mx-auto max-w-md px-6 py-8">
+      <XpSparkToast xp={sparkXp} onDone={() => setSparkXp(null)} />
       <h1 className="text-2xl font-bold">Log food</h1>
       <p className="mt-1 text-sm text-zinc-400">Snap a photo, or just type what you ate.</p>
 

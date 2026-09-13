@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { Measurement, ProgressPhoto } from "@/lib/types";
+import type { Measurement, ProgressPhoto, JournalEntry } from "@/lib/types";
 
 type Angle = "front" | "side" | "back";
 
@@ -19,6 +19,16 @@ function formatDate(iso: string): string {
     month: "short",
     day: "numeric",
     year: "numeric",
+  });
+}
+
+function formatDateTime(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
   });
 }
 
@@ -33,9 +43,13 @@ export default function ProgressPage() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [journal, setJournal] = useState<JournalEntry[]>([]);
+  const [journalDraft, setJournalDraft] = useState("");
+  const [journalSaving, setJournalSaving] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
 
   async function load() {
-    const [{ data: m }, { data: p }] = await Promise.all([
+    const [{ data: m }, { data: p }, { data: j }] = await Promise.all([
       supabase
         .from("measurements")
         .select("*")
@@ -46,9 +60,15 @@ export default function ProgressPage() {
         .select("*")
         .order("taken_at", { ascending: false })
         .returns<ProgressPhoto[]>(),
+      supabase
+        .from("journal_entries")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .returns<JournalEntry[]>(),
     ]);
     setMeasurements(m ?? []);
     setPhotos(p ?? []);
+    setJournal(j ?? []);
     setLoading(false);
   }
 
@@ -88,6 +108,34 @@ export default function ProgressPage() {
 
   async function deleteMeasurement(id: string) {
     await supabase.from("measurements").delete().eq("id", id);
+    await load();
+  }
+
+  async function addJournalEntry() {
+    const entry_text = journalDraft.trim();
+    if (!entry_text) return;
+    setJournalSaving(true);
+    setJournalError(null);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setJournalError("Not signed in");
+      setJournalSaving(false);
+      return;
+    }
+    const { error } = await supabase.from("journal_entries").insert({ user_id: user.id, entry_text });
+    setJournalSaving(false);
+    if (error) {
+      setJournalError(error.message);
+      return;
+    }
+    setJournalDraft("");
+    await load();
+  }
+
+  async function deleteJournalEntry(id: string) {
+    await supabase.from("journal_entries").delete().eq("id", id);
     await load();
   }
 
@@ -198,6 +246,46 @@ export default function ProgressPage() {
                 >
                   Remove
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="mt-6">
+        <p className="mb-3 text-sm font-semibold text-zinc-300">Journal</p>
+        <div className="space-y-2">
+          <textarea
+            value={journalDraft}
+            onChange={(e) => setJournalDraft(e.target.value)}
+            placeholder="How's training going? How do you feel today?"
+            rows={3}
+            className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+          <button
+            onClick={addJournalEntry}
+            disabled={journalSaving || !journalDraft.trim()}
+            className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+          >
+            {journalSaving ? "Saving..." : "Add entry"}
+          </button>
+          {journalError && <p className="text-sm text-red-400">{journalError}</p>}
+        </div>
+
+        {journal.length > 0 && (
+          <div className="mt-4 space-y-2">
+            {journal.map((entry) => (
+              <div key={entry.id} className="rounded-xl border border-zinc-800 bg-zinc-900 px-4 py-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="text-xs font-medium text-zinc-500">{formatDateTime(entry.created_at)}</p>
+                  <button
+                    onClick={() => deleteJournalEntry(entry.id)}
+                    className="shrink-0 text-xs font-medium text-zinc-500 active:opacity-70"
+                  >
+                    Remove
+                  </button>
+                </div>
+                <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-200">{entry.entry_text}</p>
               </div>
             ))}
           </div>
