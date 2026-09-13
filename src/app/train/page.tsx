@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 
 // Train: the home for everything that moves you toward your goal day to
 // day — logging food, following a workout, recipes, and the AI coach.
@@ -41,7 +43,23 @@ const ACTIONS = [
   },
 ];
 
-export default function TrainPage() {
+export default async function TrainPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (user) {
+    // Force the split-setup quiz the first time someone opens Train, same
+    // as the onboarding gate on Home — everything else here assumes a plan
+    // exists (the split label on "Today's workout" comes from it).
+    const { data: plan } = await supabase
+      .from("training_plans")
+      .select("user_id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!plan) redirect("/train/setup");
+  }
+
   const primary = ACTIONS.filter((a) => a.primary);
   const secondary = ACTIONS.filter((a) => !a.primary);
 

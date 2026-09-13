@@ -73,6 +73,27 @@ export interface Lift {
   sets: number;
 }
 
+export interface LiftMuscle {
+  id: string;
+  lift_id: string;
+  user_id: string;
+  muscle_group: string;
+}
+
+export type TrainingGoal = "build_muscle" | "get_stronger" | "lose_fat" | "general_fitness";
+export type SplitType = "upper_lower" | "ppl" | "bro_split";
+
+export interface TrainingPlan {
+  user_id: string;
+  training_goal: TrainingGoal;
+  split_type: SplitType;
+  ideal_weight_lb: number | null;
+  sex: string | null;
+  day_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProgressPhoto {
   id: string;
   user_id: string;

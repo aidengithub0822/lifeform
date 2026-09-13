@@ -82,6 +82,35 @@ create table if not exists public.lifts (
 );
 create index if not exists lifts_user_time_idx on public.lifts (user_id, logged_at desc);
 
+-- Tags a logged lift to the muscle groups it trained (many-to-many: a row
+-- per muscle a given lift worked, e.g. bench press -> chest + shoulders +
+-- triceps). Populated from the exercise's fixed catalog mapping at log time
+-- so the muscle-rank engine never has to guess from free-text names.
+create table if not exists public.lift_muscles (
+  id uuid primary key default gen_random_uuid(),
+  lift_id uuid not null references public.lifts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  muscle_group text not null
+);
+create index if not exists lift_muscles_lift_idx on public.lift_muscles (lift_id);
+create index if not exists lift_muscles_user_muscle_idx on public.lift_muscles (user_id, muscle_group);
+
+-- One row per user: the result of the Train split-setup quiz (goal, ideal
+-- body weight, gender, and the chosen split). `day_index` advances through
+-- the split's day list each time "Start workout" is tapped on /fitness so
+-- "today's workout" rotates Upper A -> Lower A -> Upper B -> ... instead of
+-- always showing day 1.
+create table if not exists public.training_plans (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  training_goal text not null check (training_goal in ('build_muscle', 'get_stronger', 'lose_fat', 'general_fitness')),
+  split_type text not null check (split_type in ('upper_lower', 'ppl', 'bro_split')),
+  ideal_weight_lb numeric,
+  sex text,
+  day_index int not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.progress_photos (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -333,12 +362,14 @@ alter table public.photo_likes enable row level security;
 alter table public.photo_comments enable row level security;
 alter table public.follows enable row level security;
 alter table public.push_subscriptions enable row level security;
+alter table public.lift_muscles enable row level security;
+alter table public.training_plans enable row level security;
 
 do $$
 declare
   t text;
 begin
-  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks','journal_entries','push_subscriptions'])
+  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks','journal_entries','push_subscriptions','lift_muscles','training_plans'])
   loop
     execute format('drop policy if exists "owner_all" on public.%I', t);
     execute format(

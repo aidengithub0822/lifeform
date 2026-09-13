@@ -1,0 +1,260 @@
+// Split-day templates for the Train setup quiz's three recommended splits.
+//
+// Rep/set schemes follow mechanical-tension-first hypertrophy programming
+// (roughly the Nippard/Sulek-era consensus: heavy compounds in a lower rep
+// range near failure, isolations pushed closer to failure at higher reps)
+// instead of a blanket "3-4 sets of 10-12" for everything, which is the
+// specific complaint that prompted this file. This is a hand-curated
+// starting point, not yet AI-personalized — see the coach system prompt
+// for the next step of that work.
+//
+// Each exercise is tagged with the muscle groups it trains, matching the
+// muscle-map artboard's regions, so a future lift-logging screen can write
+// straight into `lift_muscles` without guessing from free-text names.
+
+export type MuscleGroup =
+  | "chest"
+  | "shoulders"
+  | "biceps"
+  | "triceps"
+  | "back"
+  | "traps"
+  | "abs"
+  | "glutes"
+  | "quads"
+  | "hamstrings"
+  | "calves";
+
+export type ExerciseKind = "heavy_compound" | "moderate_compound" | "isolation" | "core";
+
+export interface SplitExercise {
+  name: string;
+  kind: ExerciseKind;
+  sets: number;
+  repRange: string;
+  cue: string;
+  muscles: MuscleGroup[];
+}
+
+export interface SplitDay {
+  key: string;
+  label: string;
+  exercises: SplitExercise[];
+}
+
+export interface SplitDefinition {
+  key: "upper_lower" | "ppl" | "bro_split";
+  label: string;
+  daysPerWeek: number;
+  summary: string;
+  tradeoff: string;
+  days: SplitDay[];
+}
+
+const KIND_CUE: Record<ExerciseKind, string> = {
+  heavy_compound: "Heavy compound — chase progressive overload, 1-2 reps in reserve.",
+  moderate_compound: "Moderate compound — control the eccentric, 1 rep in reserve.",
+  isolation: "Isolation — full stretch and squeeze, push to 0-1 reps in reserve.",
+  core: "Core — quality over speed, hold the brace through the whole set.",
+};
+
+function ex(
+  name: string,
+  kind: ExerciseKind,
+  sets: number,
+  repRange: string,
+  muscles: MuscleGroup[],
+  cue?: string
+): SplitExercise {
+  return { name, kind, sets, repRange, muscles, cue: cue ?? KIND_CUE[kind] };
+}
+
+export const SPLITS: Record<SplitDefinition["key"], SplitDefinition> = {
+  upper_lower: {
+    key: "upper_lower",
+    label: "Upper / Lower",
+    daysPerWeek: 4,
+    summary:
+      "Two upper-body days and two lower-body days, alternating. Each muscle group gets hit twice a week.",
+    tradeoff: "The balance most people building muscle respond best to, without needing a gym 6 days a week.",
+    days: [
+      {
+        key: "upper_a",
+        label: "Upper A",
+        exercises: [
+          ex("Barbell bench press", "heavy_compound", 4, "5-8", ["chest", "shoulders", "triceps"]),
+          ex("Barbell row", "heavy_compound", 4, "6-8", ["back", "biceps", "traps"]),
+          ex("Seated overhead press", "moderate_compound", 3, "8-10", ["shoulders", "triceps"]),
+          ex("Lat pulldown", "moderate_compound", 3, "8-10", ["back", "biceps"]),
+          ex("Cable lateral raise", "isolation", 3, "12-15", ["shoulders"]),
+          ex("Barbell curl", "isolation", 3, "10-12", ["biceps"]),
+          ex("Triceps pushdown", "isolation", 3, "12-15", ["triceps"]),
+        ],
+      },
+      {
+        key: "lower_a",
+        label: "Lower A",
+        exercises: [
+          ex("Back squat", "heavy_compound", 4, "5-8", ["quads", "glutes"]),
+          ex("Romanian deadlift", "heavy_compound", 3, "6-8", ["hamstrings", "glutes", "back"]),
+          ex("Leg press", "moderate_compound", 3, "10-12", ["quads", "glutes"]),
+          ex("Seated leg curl", "isolation", 3, "12-15", ["hamstrings"]),
+          ex("Standing calf raise", "isolation", 4, "12-15", ["calves"]),
+          ex("Hanging leg raise", "core", 3, "10-15", ["abs"]),
+        ],
+      },
+      {
+        key: "upper_b",
+        label: "Upper B",
+        exercises: [
+          ex("Incline dumbbell press", "heavy_compound", 4, "6-8", ["chest", "shoulders", "triceps"]),
+          ex("Pull-ups / weighted pull-ups", "heavy_compound", 4, "6-8", ["back", "biceps"]),
+          ex("Machine shoulder press", "moderate_compound", 3, "8-10", ["shoulders", "triceps"]),
+          ex("Seated cable row", "moderate_compound", 3, "8-10", ["back", "biceps", "traps"]),
+          ex("Cable chest fly", "isolation", 3, "12-15", ["chest"]),
+          ex("Rear delt fly", "isolation", 3, "15-20", ["shoulders"]),
+          ex("Hammer curl", "isolation", 3, "10-12", ["biceps"]),
+          ex("Overhead triceps extension", "isolation", 3, "10-12", ["triceps"]),
+        ],
+      },
+      {
+        key: "lower_b",
+        label: "Lower B",
+        exercises: [
+          ex("Conventional deadlift", "heavy_compound", 3, "4-6", ["hamstrings", "glutes", "back", "traps"]),
+          ex("Front squat", "heavy_compound", 3, "6-8", ["quads", "glutes"]),
+          ex("Walking lunges", "moderate_compound", 3, "10-12 each leg", ["quads", "glutes"]),
+          ex("Leg extension", "isolation", 3, "12-15", ["quads"]),
+          ex("Hip thrust", "isolation", 3, "10-12", ["glutes"]),
+          ex("Seated calf raise", "isolation", 4, "15-20", ["calves"]),
+          ex("Cable crunch", "core", 3, "12-15", ["abs"]),
+        ],
+      },
+    ],
+  },
+  ppl: {
+    key: "ppl",
+    label: "Push / Pull / Legs",
+    daysPerWeek: 6,
+    summary:
+      "Pushing muscles, pulling muscles, and legs each get their own day, run twice through the week.",
+    tradeoff: "Higher volume and frequency than Upper/Lower — best if you can commit to 6 sessions a week.",
+    days: [
+      {
+        key: "push",
+        label: "Push",
+        exercises: [
+          ex("Barbell bench press", "heavy_compound", 4, "5-8", ["chest", "shoulders", "triceps"]),
+          ex("Seated overhead press", "heavy_compound", 3, "6-8", ["shoulders", "triceps"]),
+          ex("Incline dumbbell press", "moderate_compound", 3, "8-10", ["chest", "shoulders"]),
+          ex("Cable lateral raise", "isolation", 4, "12-15", ["shoulders"]),
+          ex("Cable chest fly", "isolation", 3, "12-15", ["chest"]),
+          ex("Triceps pushdown", "isolation", 3, "12-15", ["triceps"]),
+          ex("Overhead triceps extension", "isolation", 2, "10-12", ["triceps"]),
+        ],
+      },
+      {
+        key: "pull",
+        label: "Pull",
+        exercises: [
+          ex("Deadlift", "heavy_compound", 3, "4-6", ["back", "hamstrings", "glutes", "traps"]),
+          ex("Pull-ups / weighted pull-ups", "heavy_compound", 4, "6-8", ["back", "biceps"]),
+          ex("Barbell row", "moderate_compound", 3, "8-10", ["back", "biceps", "traps"]),
+          ex("Face pulls", "isolation", 3, "15-20", ["shoulders", "traps"]),
+          ex("Barbell curl", "isolation", 3, "10-12", ["biceps"]),
+          ex("Hammer curl", "isolation", 3, "10-12", ["biceps"]),
+          ex("Dumbbell shrug", "isolation", 3, "12-15", ["traps"]),
+        ],
+      },
+      {
+        key: "legs",
+        label: "Legs",
+        exercises: [
+          ex("Back squat", "heavy_compound", 4, "5-8", ["quads", "glutes"]),
+          ex("Romanian deadlift", "heavy_compound", 3, "6-8", ["hamstrings", "glutes"]),
+          ex("Leg press", "moderate_compound", 3, "10-12", ["quads", "glutes"]),
+          ex("Seated leg curl", "isolation", 3, "12-15", ["hamstrings"]),
+          ex("Leg extension", "isolation", 3, "12-15", ["quads"]),
+          ex("Standing calf raise", "isolation", 4, "12-15", ["calves"]),
+          ex("Hanging leg raise", "core", 3, "10-15", ["abs"]),
+        ],
+      },
+    ],
+  },
+  bro_split: {
+    key: "bro_split",
+    label: "Bro Split",
+    daysPerWeek: 5,
+    summary: "One muscle group per day — chest, back, shoulders, arms, legs.",
+    tradeoff: "Each muscle gets a full session of focused volume once a week. Simple to follow, lower frequency.",
+    days: [
+      {
+        key: "chest",
+        label: "Chest",
+        exercises: [
+          ex("Barbell bench press", "heavy_compound", 4, "5-8", ["chest", "shoulders", "triceps"]),
+          ex("Incline dumbbell press", "heavy_compound", 3, "6-8", ["chest", "shoulders"]),
+          ex("Cable chest fly", "isolation", 3, "12-15", ["chest"]),
+          ex("Dips (chest-leaning)", "moderate_compound", 3, "8-12", ["chest", "triceps"]),
+          ex("Push-ups", "isolation", 2, "to near-failure", ["chest", "triceps"]),
+        ],
+      },
+      {
+        key: "back",
+        label: "Back",
+        exercises: [
+          ex("Deadlift", "heavy_compound", 3, "4-6", ["back", "hamstrings", "glutes", "traps"]),
+          ex("Pull-ups / lat pulldown", "heavy_compound", 4, "6-10", ["back", "biceps"]),
+          ex("Barbell row", "moderate_compound", 3, "8-10", ["back", "biceps"]),
+          ex("Seated cable row", "isolation", 3, "10-12", ["back", "biceps"]),
+          ex("Face pulls", "isolation", 3, "15-20", ["shoulders", "traps"]),
+        ],
+      },
+      {
+        key: "shoulders",
+        label: "Shoulders",
+        exercises: [
+          ex("Seated overhead press", "heavy_compound", 4, "6-8", ["shoulders", "triceps"]),
+          ex("Cable lateral raise", "isolation", 4, "12-15", ["shoulders"]),
+          ex("Rear delt fly", "isolation", 3, "15-20", ["shoulders"]),
+          ex("Arnold press", "moderate_compound", 3, "8-10", ["shoulders", "triceps"]),
+          ex("Dumbbell shrug", "isolation", 3, "12-15", ["traps"]),
+        ],
+      },
+      {
+        key: "arms",
+        label: "Arms",
+        exercises: [
+          ex("Close-grip bench press", "moderate_compound", 4, "8-10", ["triceps", "chest"]),
+          ex("Barbell curl", "isolation", 4, "10-12", ["biceps"]),
+          ex("Overhead triceps extension", "isolation", 3, "10-12", ["triceps"]),
+          ex("Hammer curl", "isolation", 3, "10-12", ["biceps"]),
+          ex("Cable tricep pushdown", "isolation", 3, "12-15", ["triceps"]),
+          ex("Incline dumbbell curl", "isolation", 3, "12-15", ["biceps"]),
+        ],
+      },
+      {
+        key: "legs",
+        label: "Legs",
+        exercises: [
+          ex("Back squat", "heavy_compound", 4, "5-8", ["quads", "glutes"]),
+          ex("Romanian deadlift", "heavy_compound", 3, "6-8", ["hamstrings", "glutes"]),
+          ex("Leg press", "moderate_compound", 3, "10-12", ["quads", "glutes"]),
+          ex("Seated leg curl", "isolation", 3, "12-15", ["hamstrings"]),
+          ex("Leg extension", "isolation", 3, "12-15", ["quads"]),
+          ex("Standing calf raise", "isolation", 4, "12-15", ["calves"]),
+        ],
+      },
+    ],
+  },
+};
+
+export function splitFor(key: SplitDefinition["key"]): SplitDefinition {
+  return SPLITS[key];
+}
+
+/** The day a plan should show today, cycling through the split's day list. */
+export function currentDay(splitKey: SplitDefinition["key"], dayIndex: number): SplitDay {
+  const split = SPLITS[splitKey];
+  return split.days[dayIndex % split.days.length];
+}
