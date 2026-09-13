@@ -136,6 +136,36 @@ create table if not exists public.profiles (
   username text not null unique,
   updated_at timestamptz not null default now()
 );
+-- Existing installs: profile page adds a bio and an avatar on top of username.
+alter table public.profiles add column if not exists bio text;
+alter table public.profiles add column if not exists avatar_url text;
+
+-- Images a user posts to their own profile gallery — separate from progress
+-- photos (body-check tracking) and community posts (the shared feed).
+-- Visible to anyone who visits that profile, postable/deletable only by
+-- its owner.
+create table if not exists public.profile_photos (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  photo_url text not null,
+  caption text,
+  created_at timestamptz not null default now()
+);
+create index if not exists profile_photos_user_time_idx on public.profile_photos (user_id, created_at desc);
+
+-- Direct messages between two users. A "conversation" isn't its own row —
+-- it's just every message where you're the sender or the recipient, grouped
+-- client-side by the other person's id. Realtime is enabled on this table
+-- (see the publication block below) so a thread updates live.
+create table if not exists public.messages (
+  id uuid primary key default gen_random_uuid(),
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  recipient_id uuid not null references auth.users(id) on delete cascade,
+  body text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists messages_sender_time_idx on public.messages (sender_id, created_at desc);
+create index if not exists messages_recipient_time_idx on public.messages (recipient_id, created_at desc);
 
 -- Free-form dated journal entries, shown on the Progress tab. Multiple
 -- entries per day are allowed (unlike measurements, which are one-per-day).
@@ -173,6 +203,8 @@ alter table public.feedback enable row level security;
 alter table public.profiles enable row level security;
 alter table public.journal_entries enable row level security;
 alter table public.community_posts enable row level security;
+alter table public.profile_photos enable row level security;
+alter table public.messages enable row level security;
 
 do $$
 declare
@@ -236,6 +268,41 @@ drop policy if exists "community_delete_own" on public.community_posts;
 create policy "community_delete_own" on public.community_posts
   for delete using (auth.uid() = user_id);
 
+-- profile_photos: anyone signed in can view anyone's gallery (profile pages
+-- are public within the app), but you can only post/delete your own images.
+drop policy if exists "profile_photos_select_all" on public.profile_photos;
+create policy "profile_photos_select_all" on public.profile_photos
+  for select using (auth.uid() is not null);
+
+drop policy if exists "profile_photos_insert_own" on public.profile_photos;
+create policy "profile_photos_insert_own" on public.profile_photos
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "profile_photos_delete_own" on public.profile_photos;
+create policy "profile_photos_delete_own" on public.profile_photos
+  for delete using (auth.uid() = user_id);
+
+-- messages: you can only read a message if you sent or received it, and you
+-- can only ever insert a message as its sender.
+drop policy if exists "messages_select_own" on public.messages;
+create policy "messages_select_own" on public.messages
+  for select using (auth.uid() = sender_id or auth.uid() = recipient_id);
+
+drop policy if exists "messages_insert_own" on public.messages;
+create policy "messages_insert_own" on public.messages
+  for insert with check (auth.uid() = sender_id);
+
+-- Enable Realtime (live updates without refreshing) for the messages table.
+-- Safe to re-run: adding a table that's already in the publication just
+-- raises a notice, which this block swallows.
+do $$
+begin
+  execute 'alter publication supabase_realtime add table public.messages';
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
 -- Storage buckets for food photos and progress photos.
 insert into storage.buckets (id, name, public)
 values ('food-photos', 'food-photos', true)
@@ -243,6 +310,12 @@ on conflict (id) do nothing;
 
 insert into storage.buckets (id, name, public)
 values ('progress-photos', 'progress-photos', true)
+on conflict (id) do nothing;
+
+-- Profile avatars and gallery images, e.g. profile-media/<user_id>/avatar.jpg
+-- and profile-media/<user_id>/gallery/<filename>.jpg.
+insert into storage.buckets (id, name, public)
+values ('profile-media', 'profile-media', true)
 on conflict (id) do nothing;
 
 -- Storage RLS: users may only read/write files under a path that starts with their own user id,
@@ -261,4 +334,12 @@ create policy "progress photos owner rw" on storage.objects
     bucket_id = 'progress-photos' and auth.uid()::text = (storage.foldername(name))[1]
   ) with check (
     bucket_id = 'progress-photos' and auth.uid()::text = (storage.foldername(name))[1]
+  );
+
+drop policy if exists "profile media owner rw" on storage.objects;
+create policy "profile media owner rw" on storage.objects
+  for all using (
+    bucket_id = 'profile-media' and auth.uid()::text = (storage.foldername(name))[1]
+  ) with check (
+    bucket_id = 'profile-media' and auth.uid()::text = (storage.foldername(name))[1]
   );

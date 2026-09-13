@@ -25,6 +25,12 @@ const items = [
     title: "Community",
     desc: "AI-moderated discussion",
   },
+  {
+    href: "/messages",
+    icon: "✉️",
+    title: "Messages",
+    desc: "Direct message other users",
+  },
 ];
 
 export default function ExploreGrid() {

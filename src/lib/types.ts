@@ -93,7 +93,25 @@ export interface Feedback {
 export interface Profile {
   user_id: string;
   username: string;
+  bio: string | null;
+  avatar_url: string | null;
   updated_at: string;
+}
+
+export interface ProfilePhoto {
+  id: string;
+  user_id: string;
+  photo_url: string;
+  caption: string | null;
+  created_at: string;
+}
+
+export interface Message {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  body: string;
+  created_at: string;
 }
 
 export interface JournalEntry {

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
+import UserLink from "@/components/UserLink";
 import type { CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
@@ -133,9 +134,9 @@ export default function CommunityPage() {
           return (
             <div key={post.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3.5">
               <div className="flex items-baseline justify-between gap-2">
-                <p className="truncate text-xs font-semibold text-zinc-400">
-                  {post.author_username || "Someone"}
-                </p>
+                <span className="truncate text-xs font-semibold text-zinc-400">
+                  <UserLink username={post.author_username} fallback="Someone" />
+                </span>
                 <p className="shrink-0 text-[11px] text-zinc-600">
                   {formatDistanceToNow(new Date(post.created_at), { addSuffix: true })}
                 </p>

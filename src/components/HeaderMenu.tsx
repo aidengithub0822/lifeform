@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
+import UserLink from "@/components/UserLink";
 import type { Feedback, Goal } from "@/lib/types";
 
 type Tab = "settings" | "info" | "feedback";
@@ -265,6 +266,28 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                       </button>
                     </div>
                     {usernameError && <p className="mt-2 text-xs text-red-400">{usernameError}</p>}
+                    {username && (
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          onClick={() => {
+                            setOpen(false);
+                            router.push(`/profile/${username}`);
+                          }}
+                          className="flex-1 rounded-xl bg-zinc-800 py-2 text-xs font-semibold text-zinc-200"
+                        >
+                          View my profile
+                        </button>
+                        <button
+                          onClick={() => {
+                            setOpen(false);
+                            router.push("/messages");
+                          }}
+                          className="flex-1 rounded-xl bg-zinc-800 py-2 text-xs font-semibold text-zinc-200"
+                        >
+                          Messages
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
@@ -356,6 +379,10 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                     Comments is feedback for the app itself; Community is an open, AI-moderated thread
                     for general discussion. You can delete your own posts in either one.
                   </InfoCard>
+                  <InfoCard title="Profiles & Messages">
+                    Tap any username to see their profile — bio, photos, and a Message button. Your own
+                    profile lets you set a bio, photo, and gallery images from the Settings tab above.
+                  </InfoCard>
                   <p className="pt-1 text-center text-xs text-zinc-600">lifeform scanner</p>
                 </div>
               )}
@@ -392,9 +419,9 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                       return (
                         <div key={c.id} className="rounded-xl border border-zinc-800 bg-zinc-900 p-3">
                           <div className="flex items-baseline justify-between gap-2">
-                            <p className="truncate text-xs font-semibold text-zinc-400">
-                              {c.author_username || c.author_email || "Someone"}
-                            </p>
+                            <span className="truncate text-xs font-semibold text-zinc-400">
+                              <UserLink username={c.author_username} fallback={c.author_email || "Someone"} />
+                            </span>
                             <p className="shrink-0 text-[11px] text-zinc-600">
                               {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
                             </p>

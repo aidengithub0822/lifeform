@@ -1,0 +1,262 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import type { Profile, ProfilePhoto } from "@/lib/types";
+
+export default function ProfilePage() {
+  const params = useParams<{ username: string }>();
+  const username = decodeURIComponent(params.username);
+  const router = useRouter();
+  const supabase = createClient();
+
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [photos, setPhotos] = useState<ProfilePhoto[]>([]);
+  const [myUserId, setMyUserId] = useState<string | null>(null);
+
+  const [bioDraft, setBioDraft] = useState("");
+  const [savingBio, setSavingBio] = useState(false);
+  const [bioError, setBioError] = useState<string | null>(null);
+
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [galleryError, setGalleryError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setNotFound(false);
+    const [{ data: me }, profileRes] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.from("profiles").select("*").eq("username", username).maybeSingle(),
+    ]);
+    const p = profileRes.data as Profile | null;
+    setMyUserId(me.user?.id ?? null);
+    if (!p) {
+      setNotFound(true);
+      setProfile(null);
+      setPhotos([]);
+      setLoading(false);
+      return;
+    }
+    setProfile(p);
+    setBioDraft(p.bio ?? "");
+    const { data: gallery } = await supabase
+      .from("profile_photos")
+      .select("*")
+      .eq("user_id", p.user_id)
+      .order("created_at", { ascending: false })
+      .returns<ProfilePhoto[]>();
+    setPhotos(gallery ?? []);
+    setLoading(false);
+  }
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot client fetch on mount / username change
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [username]);
+
+  const isOwn = !!profile && !!myUserId && profile.user_id === myUserId;
+
+  async function saveBio() {
+    if (!profile) return;
+    setSavingBio(true);
+    setBioError(null);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ bio: bioDraft.trim() || null, updated_at: new Date().toISOString() })
+      .eq("user_id", profile.user_id);
+    setSavingBio(false);
+    if (error) {
+      setBioError(error.message);
+      return;
+    }
+    await load();
+  }
+
+  async function uploadAvatar(file: File) {
+    if (!profile) return;
+    setUploadingAvatar(true);
+    setGalleryError(null);
+    const path = `${profile.user_id}/avatar.jpg`;
+    const { error } = await supabase.storage.from("profile-media").upload(path, file, { upsert: true });
+    if (error) {
+      setGalleryError(error.message);
+      setUploadingAvatar(false);
+      return;
+    }
+    const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+    // Cache-bust so the new avatar shows immediately instead of a stale cached image at the same URL.
+    const bustUrl = `${url}?t=${Date.now()}`;
+    const { error: updateError } = await supabase
+      .from("profiles")
+      .update({ avatar_url: bustUrl, updated_at: new Date().toISOString() })
+      .eq("user_id", profile.user_id);
+    if (updateError) setGalleryError(updateError.message);
+    setUploadingAvatar(false);
+    await load();
+  }
+
+  async function uploadGalleryPhoto(file: File) {
+    if (!profile) return;
+    setUploadingPhoto(true);
+    setGalleryError(null);
+    const path = `${profile.user_id}/gallery/${Date.now()}.jpg`;
+    const { error } = await supabase.storage.from("profile-media").upload(path, file);
+    if (error) {
+      setGalleryError(error.message);
+      setUploadingPhoto(false);
+      return;
+    }
+    const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+    const { error: insertError } = await supabase
+      .from("profile_photos")
+      .insert({ user_id: profile.user_id, photo_url: url });
+    if (insertError) setGalleryError(insertError.message);
+    setUploadingPhoto(false);
+    await load();
+  }
+
+  async function deleteGalleryPhoto(id: string) {
+    await supabase.from("profile_photos").delete().eq("id", id);
+    await load();
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-md px-5 py-8">
+        <p className="text-sm text-zinc-500">Loading...</p>
+      </div>
+    );
+  }
+
+  if (notFound || !profile) {
+    return (
+      <div className="mx-auto max-w-md px-5 py-8">
+        <Link href="/" className="text-sm font-medium text-emerald-400">
+          ← Back
+        </Link>
+        <p className="mt-6 rounded-2xl border border-dashed border-zinc-800 py-8 text-center text-sm text-zinc-500">
+          No profile found for &quot;{username}&quot;.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-md px-5 py-8">
+      <Link href="/" className="text-sm font-medium text-emerald-400">
+        ← Back
+      </Link>
+
+      <div className="mt-4 flex items-center gap-4">
+        <div className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900">
+          {profile.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.avatar_url} alt={`${profile.username}'s avatar`} className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center text-2xl font-bold text-zinc-600">
+              {profile.username.slice(0, 1).toUpperCase()}
+            </div>
+          )}
+        </div>
+        <div className="min-w-0">
+          <h1 className="truncate text-xl font-bold">{profile.username}</h1>
+          {isOwn && (
+            <label className="mt-1 inline-block text-xs font-medium text-emerald-400 active:opacity-70">
+              {uploadingAvatar ? "Uploading..." : "Change photo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && uploadAvatar(e.target.files[0])}
+              />
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-5">
+        {isOwn ? (
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+            <p className="mb-2 text-sm font-semibold text-zinc-300">Bio</p>
+            <textarea
+              value={bioDraft}
+              onChange={(e) => setBioDraft(e.target.value)}
+              placeholder="Tell people a bit about yourself..."
+              rows={3}
+              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+            />
+            <button
+              onClick={saveBio}
+              disabled={savingBio}
+              className="mt-2 w-full rounded-xl bg-emerald-500 py-2 text-sm font-semibold text-black disabled:opacity-60"
+            >
+              {savingBio ? "Saving..." : "Save bio"}
+            </button>
+            {bioError && <p className="mt-2 text-sm text-red-400">{bioError}</p>}
+          </div>
+        ) : (
+          profile.bio && <p className="whitespace-pre-wrap text-sm text-zinc-300">{profile.bio}</p>
+        )}
+      </div>
+
+      {!isOwn && (
+        <button
+          onClick={() => router.push(`/messages/${profile.user_id}`)}
+          className="mt-4 w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black"
+        >
+          Message
+        </button>
+      )}
+
+      <div className="mt-6">
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm font-semibold text-zinc-300">Photos</p>
+          {isOwn && (
+            <label className="text-xs font-medium text-emerald-400 active:opacity-70">
+              {uploadingPhoto ? "Uploading..." : "+ Add photo"}
+              <input
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => e.target.files?.[0] && uploadGalleryPhoto(e.target.files[0])}
+              />
+            </label>
+          )}
+        </div>
+        {galleryError && <p className="mb-2 text-sm text-red-400">{galleryError}</p>}
+        {photos.length === 0 ? (
+          <p className="rounded-2xl border border-dashed border-zinc-800 py-8 text-center text-sm text-zinc-500">
+            {isOwn ? "No photos yet — add your first one." : "No photos yet."}
+          </p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((p) => (
+              <div key={p.id} className="group relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.photo_url}
+                  alt={`${profile.username}'s photo`}
+                  className="aspect-square w-full rounded-xl object-cover"
+                />
+                {isOwn && (
+                  <button
+                    onClick={() => deleteGalleryPhoto(p.id)}
+                    className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-medium text-white"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
