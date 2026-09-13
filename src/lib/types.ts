@@ -146,6 +146,8 @@ export interface ProfilePhoto {
   photo_url: string;
   caption: string | null;
   created_at: string;
+  /** The mirrored community_posts row this photo also appears as — see schema.sql. */
+  community_post_id: string | null;
 }
 
 export interface Message {

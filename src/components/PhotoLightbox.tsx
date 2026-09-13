@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import AuthorLine from "@/components/AuthorLine";
-import type { AuthorInfo, PhotoComment, ProfilePhoto } from "@/lib/types";
+import { CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import type { ProfilePhoto } from "@/lib/types";
 
 /**
  * Full-screen overlay for a profile-gallery photo: like, comment, and
  * share, opened by tapping a photo in the grid on /profile/[username].
  * Takes the WHOLE gallery + a starting index so you can swipe/arrow
  * through every post fluidly instead of closing and reopening one at a
- * time.
+ * time. Every gallery photo is mirrored into the Community feed as its
+ * own post (see schema.sql), so commenting happens there — one comment
+ * thread per post, instead of a second separate one living in the
+ * lightbox.
  */
 export default function PhotoLightbox({
   photos,
@@ -22,17 +26,14 @@ export default function PhotoLightbox({
   onClose: () => void;
 }) {
   const supabase = createClient();
+  const router = useRouter();
   const [index, setIndex] = useState(initialIndex);
   const photo = photos[index];
 
   const [myUserId, setMyUserId] = useState<string | null>(null);
-  const [myUsername, setMyUsername] = useState<string | null>(null);
   const [likeCount, setLikeCount] = useState(0);
   const [likedByMe, setLikedByMe] = useState(false);
-  const [comments, setComments] = useState<PhotoComment[]>([]);
-  const [authors, setAuthors] = useState<Record<string, AuthorInfo>>({});
-  const [draft, setDraft] = useState("");
-  const [posting, setPosting] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const touchStartX = useRef<number | null>(null);
 
@@ -43,34 +44,18 @@ export default function PhotoLightbox({
 
   async function load(uid: string | null) {
     if (!photo) return;
-    const [{ count }, { data: myLike }, { data: commentRows }] = await Promise.all([
+    const [{ count: likes }, { data: myLike }, commentsRes] = await Promise.all([
       supabase.from("photo_likes").select("id", { count: "exact", head: true }).eq("photo_id", photo.id),
       uid
         ? supabase.from("photo_likes").select("id").eq("photo_id", photo.id).eq("user_id", uid).maybeSingle()
         : Promise.resolve({ data: null }),
-      supabase
-        .from("photo_comments")
-        .select("*")
-        .eq("photo_id", photo.id)
-        .order("created_at", { ascending: true })
-        .returns<PhotoComment[]>(),
+      photo.community_post_id
+        ? supabase.from("community_comments").select("id", { count: "exact", head: true }).eq("post_id", photo.community_post_id)
+        : Promise.resolve({ count: 0 }),
     ]);
-    const items = commentRows ?? [];
-    setLikeCount(count ?? 0);
+    setLikeCount(likes ?? 0);
     setLikedByMe(!!myLike);
-    setComments(items);
-
-    const ids = [...new Set(items.map((c) => c.user_id))];
-    if (ids.length > 0) {
-      const { data: profiles } = await supabase
-        .from("profiles")
-        .select("user_id, avatar_url, name_color, verified, rank")
-        .in("user_id", ids)
-        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean; rank: string }[]>();
-      const map: Record<string, AuthorInfo> = {};
-      for (const p of profiles ?? []) map[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified, rank: p.rank };
-      setAuthors(map);
-    }
+    setCommentCount(commentsRes.count ?? 0);
   }
 
   useEffect(() => {
@@ -79,10 +64,6 @@ export default function PhotoLightbox({
         data: { user },
       } = await supabase.auth.getUser();
       setMyUserId(user?.id ?? null);
-      if (user) {
-        const { data: prof } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
-        setMyUsername(prof?.username ?? null);
-      }
       await load(user?.id ?? null);
     }
     init();
@@ -101,32 +82,10 @@ export default function PhotoLightbox({
     setBusy(false);
   }
 
-  async function submitComment() {
-    const body = draft.trim();
-    if (!body || !myUserId || !photo) return;
-    setPosting(true);
-    const { error } = await supabase
-      .from("photo_comments")
-      .insert({ photo_id: photo.id, user_id: myUserId, author_username: myUsername, body });
-    if (!error && photo.user_id !== myUserId) {
-      fetch("/api/push/notify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          toUserId: photo.user_id,
-          title: "New comment",
-          body: myUsername ? `${myUsername} commented: ${body}` : `New comment: ${body}`,
-        }),
-      }).catch(() => {});
-    }
-    setDraft("");
-    await load(myUserId);
-    setPosting(false);
-  }
-
-  async function deleteComment(id: string) {
-    await supabase.from("photo_comments").delete().eq("id", id);
-    await load(myUserId);
+  function openComments() {
+    if (!photo?.community_post_id) return;
+    onClose();
+    router.push(`/community/${photo.community_post_id}`);
   }
 
   async function share() {
@@ -151,12 +110,15 @@ export default function PhotoLightbox({
 
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-black" onClick={onClose}>
-      <div className="flex items-center justify-between p-3" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="flex items-center justify-between px-3 pb-3 pt-[max(env(safe-area-inset-top),20px)]"
+        onClick={(e) => e.stopPropagation()}
+      >
         <span className="text-xs font-medium text-zinc-500">
           {index + 1} / {photos.length}
         </span>
-        <button onClick={onClose} className="rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300">
-          Close
+        <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-900 text-zinc-300" aria-label="Close">
+          <CloseIcon className="h-4 w-4" />
         </button>
       </div>
 
@@ -179,90 +141,67 @@ export default function PhotoLightbox({
           {index > 0 && (
             <button
               onClick={() => goTo(index - 1)}
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-2.5 py-1.5 text-lg text-white"
+              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white"
               aria-label="Previous photo"
             >
-              ‹
+              <ChevronLeft />
             </button>
           )}
           {index < photos.length - 1 && (
             <button
               onClick={() => goTo(index + 1)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 px-2.5 py-1.5 text-lg text-white"
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-white"
               aria-label="Next photo"
             >
-              ›
+              <ChevronRight />
             </button>
           )}
         </div>
 
         <div className="mx-auto max-w-md px-4 py-3">
-          <div className="flex items-center gap-4 border-b border-zinc-800 pb-3">
+          <div className="flex items-center gap-5 border-b border-zinc-900 pb-3">
             <button
               onClick={toggleLike}
               disabled={!myUserId || busy}
-              className={`flex items-center gap-1.5 text-sm font-semibold ${
-                likedByMe ? "text-red-400" : "text-zinc-300"
-              }`}
+              className={`flex items-center gap-1.5 text-sm font-semibold ${likedByMe ? "text-red-400" : "text-zinc-400"}`}
             >
-              <span>{likedByMe ? "❤️" : "🤍"}</span>
+              <HeartIcon className="h-5 w-5" filled={likedByMe} />
               <span>{likeCount}</span>
             </button>
-            <div className="flex items-center gap-1.5 text-sm font-medium text-zinc-400">
-              <span>💬</span>
-              <span>{comments.length}</span>
-            </div>
-            <button onClick={share} className="ml-auto text-sm font-medium text-zinc-400 active:opacity-70">
-              ↗ Share
+            <button onClick={openComments} className="flex items-center gap-1.5 text-sm font-medium text-zinc-400" disabled={!photo.community_post_id}>
+              <CommentIcon className="h-5 w-5" />
+              <span>{commentCount}</span>
+            </button>
+            <button onClick={share} className="ml-auto text-zinc-400 active:opacity-70">
+              <ShareIcon className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Add a comment..."
-              rows={2}
-              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
-            />
-            <button
-              onClick={submitComment}
-              disabled={posting || !draft.trim() || !myUserId}
-              className="w-full rounded-xl bg-emerald-500 py-2 text-sm font-semibold text-black disabled:opacity-60"
-            >
-              {posting ? "Posting..." : "Comment"}
-            </button>
-          </div>
-
-          <div className="mt-4 space-y-2.5 pb-6">
-            {comments.length === 0 && <p className="text-sm text-zinc-500">No comments yet.</p>}
-            {comments.map((c) => {
-              const a = authors[c.user_id];
-              return (
-                <div key={c.id} className="rounded-xl bg-zinc-900 p-2.5">
-                  <AuthorLine
-                    username={c.author_username}
-                    avatarUrl={a?.avatar_url}
-                    color={a?.name_color}
-                    verified={a?.verified}
-                    rank={a?.rank}
-                    createdAt={c.created_at}
-                  />
-                  <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-200">{c.body}</p>
-                  {c.user_id === myUserId && (
-                    <button
-                      onClick={() => deleteComment(c.id)}
-                      className="mt-1 text-xs font-medium text-zinc-500 active:opacity-70"
-                    >
-                      Delete
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <button
+            onClick={openComments}
+            disabled={!photo.community_post_id}
+            className="mt-3 w-full rounded-xl border border-zinc-800 py-2.5 text-sm font-medium text-zinc-300 active:bg-zinc-900"
+          >
+            {commentCount > 0 ? `View ${commentCount} ${commentCount === 1 ? "comment" : "comments"}` : "Be the first to comment"}
+          </button>
         </div>
       </div>
     </div>
+  );
+}
+
+function ChevronLeft() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 5 8 12l7 7" />
+    </svg>
+  );
+}
+
+function ChevronRight() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+    </svg>
   );
 }

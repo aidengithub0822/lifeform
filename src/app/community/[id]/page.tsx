@@ -7,51 +7,80 @@ import { createClient } from "@/lib/supabase/client";
 import AuthorLine from "@/components/AuthorLine";
 import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
+import MentionTextarea from "@/components/MentionTextarea";
+import MentionText from "@/components/MentionText";
+import { ChevronIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
 
 interface ThreadProps {
+  postId: string;
   comment: CommunityComment;
   depth: number;
   allComments: CommunityComment[];
   authors: Record<string, AuthorInfo>;
   myUserId: string | null;
   isAdmin: boolean;
-  openReplyFor: string | null;
-  setOpenReplyFor: (id: string | null) => void;
-  nestedDraft: string;
-  setNestedDraft: (v: string) => void;
-  nestedPosting: boolean;
-  nestedError: string | null;
-  submitNestedReply: (parentId: string) => void;
+  onPosted: () => void;
   deleteOwnComment: (id: string) => void;
   deleteAsAdminComment: (id: string) => void;
 }
 
+// Fully self-contained per node — its own reply-box open/draft/posting/error
+// state, rather than one shared draft threaded through every node in the
+// tree. That sharing was the source of the reply box carrying stale text
+// (or the wrong error) when you switched which comment you were replying
+// to; a self-contained node can't leak state between siblings.
 function CommentNode({
+  postId,
   comment,
   depth,
   allComments,
   authors,
   myUserId,
   isAdmin,
-  openReplyFor,
-  setOpenReplyFor,
-  nestedDraft,
-  setNestedDraft,
-  nestedPosting,
-  nestedError,
-  submitNestedReply,
+  onPosted,
   deleteOwnComment,
   deleteAsAdminComment,
 }: ThreadProps) {
+  const [replying, setReplying] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [posting, setPosting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   const children = allComments.filter((c) => c.parent_id === comment.id);
   const canDelete = isAdmin || comment.user_id === myUserId;
   const a = authors[comment.user_id];
-  const indent = Math.min(depth, 3) * 14;
+  const indent = Math.min(depth, 4) * 16;
+
+  async function submitReply() {
+    const body = draft.trim();
+    if (!body) return;
+    setPosting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/community/${postId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, parentId: comment.id }),
+      });
+      const resBody = await res.json();
+      if (!res.ok) {
+        setError(resBody.error || "Couldn't post that reply");
+        return;
+      }
+      setDraft("");
+      setReplying(false);
+      onPosted();
+    } catch {
+      setError("Couldn't reach the server");
+    } finally {
+      setPosting(false);
+    }
+  }
 
   return (
-    <div style={{ marginLeft: indent }}>
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
+    <div style={{ marginLeft: indent }} className={depth > 0 ? "border-l border-zinc-900 pl-3" : undefined}>
+      <div className="py-2.5">
         <AuthorLine
           username={comment.author_username}
           avatarUrl={a?.avatar_url}
@@ -60,50 +89,48 @@ function CommentNode({
           rank={a?.rank}
           createdAt={comment.created_at}
         />
-        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{comment.body}</p>
-        <div className="mt-1.5 flex items-center gap-1">
+        <MentionText text={comment.body} className="mt-1.5 text-sm leading-relaxed text-zinc-200" />
+        <div className="mt-1.5 flex items-center gap-3">
           <button
-            onClick={() => setOpenReplyFor(openReplyFor === comment.id ? null : comment.id)}
-            className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+            onClick={() => {
+              setReplying((v) => !v);
+              setError(null);
+            }}
+            className="text-xs font-semibold text-zinc-500 active:opacity-60"
           >
             Reply
           </button>
           {canDelete && (
             <button
-              onClick={() =>
-                isAdmin && comment.user_id !== myUserId ? deleteAsAdminComment(comment.id) : deleteOwnComment(comment.id)
-              }
-              className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+              onClick={() => (isAdmin && comment.user_id !== myUserId ? deleteAsAdminComment(comment.id) : deleteOwnComment(comment.id))}
+              className="text-xs font-medium text-zinc-600 active:opacity-60"
             >
               Delete
             </button>
           )}
         </div>
 
-        {openReplyFor === comment.id && (
+        {replying && (
           <div className="mt-2 space-y-1.5">
-            <textarea
-              value={nestedDraft}
-              onChange={(e) => setNestedDraft(e.target.value)}
-              placeholder="Write a reply..."
+            <MentionTextarea
+              value={draft}
+              onChange={setDraft}
+              placeholder={comment.author_username ? `Reply to @${comment.author_username}...` : "Write a reply..."}
               rows={2}
               autoFocus
-              className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500"
+              className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
             <div className="flex items-center justify-end gap-2">
-              {nestedError && <p className="mr-auto text-xs text-red-400">{nestedError}</p>}
-              <button
-                onClick={() => setOpenReplyFor(null)}
-                className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400"
-              >
+              {error && <p className="mr-auto text-xs text-red-400">{error}</p>}
+              <button onClick={() => setReplying(false)} className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500">
                 Cancel
               </button>
               <button
-                onClick={() => submitNestedReply(comment.id)}
-                disabled={nestedPosting || !nestedDraft.trim()}
-                className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-60"
+                onClick={submitReply}
+                disabled={posting || !draft.trim()}
+                className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
               >
-                {nestedPosting ? "Posting..." : "Reply"}
+                {posting ? "Posting…" : "Reply"}
               </button>
             </div>
           </div>
@@ -111,23 +138,18 @@ function CommentNode({
       </div>
 
       {children.length > 0 && (
-        <div className="mt-2 space-y-2 border-l border-zinc-800 pl-2.5">
+        <div>
           {children.map((child) => (
             <CommentNode
               key={child.id}
+              postId={postId}
               comment={child}
               depth={depth + 1}
               allComments={allComments}
               authors={authors}
               myUserId={myUserId}
               isAdmin={isAdmin}
-              openReplyFor={openReplyFor}
-              setOpenReplyFor={setOpenReplyFor}
-              nestedDraft={nestedDraft}
-              setNestedDraft={setNestedDraft}
-              nestedPosting={nestedPosting}
-              nestedError={nestedError}
-              submitNestedReply={submitNestedReply}
+              onPosted={onPosted}
               deleteOwnComment={deleteOwnComment}
               deleteAsAdminComment={deleteAsAdminComment}
             />
@@ -155,11 +177,6 @@ export default function CommunityThreadPage() {
   const [reply, setReply] = useState("");
   const [posting, setPosting] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
-
-  const [openReplyFor, setOpenReplyFor] = useState<string | null>(null);
-  const [nestedDraft, setNestedDraft] = useState("");
-  const [nestedPosting, setNestedPosting] = useState(false);
-  const [nestedError, setNestedError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -238,32 +255,6 @@ export default function CommunityThreadPage() {
     }
   }
 
-  async function submitNestedReply(parentId: string) {
-    const body = nestedDraft.trim();
-    if (!body) return;
-    setNestedPosting(true);
-    setNestedError(null);
-    try {
-      const res = await fetch(`/api/community/${postId}/comments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, parentId }),
-      });
-      const resBody = await res.json();
-      if (!res.ok) {
-        setNestedError(resBody.error || "Couldn't post that reply");
-        return;
-      }
-      setNestedDraft("");
-      setOpenReplyFor(null);
-      await load();
-    } catch {
-      setNestedError("Couldn't reach the server");
-    } finally {
-      setNestedPosting(false);
-    }
-  }
-
   async function deleteOwnComment(id: string) {
     await supabase.from("community_comments").delete().eq("id", id);
     await load();
@@ -305,7 +296,7 @@ export default function CommunityThreadPage() {
   if (loading) {
     return (
       <div className="mx-auto max-w-md px-5 py-8">
-        <p className="text-sm text-zinc-500">Loading...</p>
+        <p className="text-sm text-zinc-600">Loading…</p>
       </div>
     );
   }
@@ -313,8 +304,8 @@ export default function CommunityThreadPage() {
   if (notFound || !post) {
     return (
       <div className="mx-auto max-w-md px-5 py-8">
-        <Link href="/community" className="text-sm font-medium text-emerald-400">
-          ← Back to Community
+        <Link href="/community" className="flex items-center gap-1 text-sm font-medium text-zinc-400">
+          <ChevronIcon className="h-4 w-4" direction="left" /> Community
         </Link>
         <p className="mt-6 rounded-2xl border border-dashed border-zinc-800 py-8 text-center text-sm text-zinc-500">
           This post isn&apos;t here anymore.
@@ -329,11 +320,11 @@ export default function CommunityThreadPage() {
   return (
     <PullToRefresh onRefresh={load}>
       <div className="mx-auto max-w-md px-5 py-8">
-        <Link href="/community" className="text-sm font-medium text-emerald-400">
-          ← Back to Community
+        <Link href="/community" className="flex items-center gap-1 text-sm font-medium text-zinc-400">
+          <ChevronIcon className="h-4 w-4" direction="left" /> Community
         </Link>
 
-        <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+        <div className="mt-4 border-b border-zinc-900 pb-4">
           <AuthorLine
             username={post.author_username}
             avatarUrl={authors[post.user_id]?.avatar_url}
@@ -342,83 +333,67 @@ export default function CommunityThreadPage() {
             rank={authors[post.user_id]?.rank}
             createdAt={post.created_at}
           />
-          {post.message && (
-            <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{post.message}</p>
-          )}
+          {post.message && <MentionText text={post.message} className="mt-2.5 text-[15px] leading-relaxed text-zinc-100" />}
           {post.photo_url && (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-xl object-cover" />
+            <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-2xl object-cover" />
           )}
-          <div className="mt-3 flex items-center gap-1 border-t border-zinc-800 pt-2.5">
-            <button
-              onClick={share}
-              className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800"
-            >
-              <span>↗</span>
-              <span>Share</span>
+          <div className="mt-3 flex items-center gap-4">
+            <button onClick={share} className="text-zinc-500 active:opacity-60">
+              <ShareIcon className="h-[18px] w-[18px]" />
             </button>
             {canDeletePost && (
-              <button
-                onClick={deletePost}
-                className="ml-auto rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
-              >
+              <button onClick={deletePost} className="ml-auto text-xs font-medium text-zinc-600 active:opacity-60">
                 Delete post
               </button>
             )}
           </div>
         </div>
 
-        <div className="lf-gradient-border mt-5 flex gap-2.5 p-3">
+        <div className="mt-4 flex gap-2.5">
           <Avatar url={myAvatar} name="me" size={32} />
           <div className="min-w-0 flex-1 space-y-2">
-            <textarea
+            <MentionTextarea
               value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder="Write a reply..."
+              onChange={setReply}
+              placeholder="Write a reply, tag someone with @..."
               rows={2}
-              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+              className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
             <div className="flex items-center justify-end gap-2">
               {replyError && <p className="mr-auto text-xs text-red-400">{replyError}</p>}
               <button
                 onClick={submitReply}
                 disabled={posting || !reply.trim()}
-                className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-60"
+                className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
               >
-                {posting ? "Posting..." : "Reply"}
+                {posting ? "Posting…" : "Reply"}
               </button>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 space-y-2.5">
-          <p className="text-sm font-semibold text-zinc-300">
+        <div className="mt-5">
+          <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">
             {comments.length > 0 ? `${comments.length} ${comments.length === 1 ? "reply" : "replies"}` : "No replies yet"}
           </p>
-          {topLevel.map((c) => (
-            <CommentNode
-              key={c.id}
-              comment={c}
-              depth={0}
-              allComments={comments}
-              authors={authors}
-              myUserId={myUserId}
-              isAdmin={isAdmin}
-              openReplyFor={openReplyFor}
-              setOpenReplyFor={(id) => {
-                setOpenReplyFor(id);
-                setNestedDraft("");
-                setNestedError(null);
-              }}
-              nestedDraft={nestedDraft}
-              setNestedDraft={setNestedDraft}
-              nestedPosting={nestedPosting}
-              nestedError={nestedError}
-              submitNestedReply={submitNestedReply}
-              deleteOwnComment={deleteOwnComment}
-              deleteAsAdminComment={deleteAsAdminComment}
-            />
-          ))}
+          <div className="mt-1 divide-y divide-zinc-900">
+            {topLevel.map((c) => (
+              <CommentNode
+                key={c.id}
+                postId={postId}
+                comment={c}
+                depth={0}
+                allComments={comments}
+                authors={authors}
+                myUserId={myUserId}
+                isAdmin={isAdmin}
+                onPosted={load}
+                deleteOwnComment={deleteOwnComment}
+                deleteAsAdminComment={deleteAsAdminComment}
+              />
+            ))}
+          </div>
         </div>
       </div>
     </PullToRefresh>

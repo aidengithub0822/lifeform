@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
 import { sendPushToUser } from "@/lib/push";
+import { extractMentions } from "@/lib/mentions";
 import type { CommunityComment } from "@/lib/types";
 
 // GET — every reply on one community post, oldest first (thread order).
@@ -85,6 +86,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       body: `${name} replied: ${text}`,
       url: `/community/${id}`,
     });
+  }
+
+  // Tag notifications — anyone @mentioned in the reply, besides whoever
+  // already got the "new reply" push above and the commenter themselves.
+  const mentioned = extractMentions(text);
+  if (mentioned.length > 0) {
+    const { data: mentionedProfiles } = await supabase
+      .from("profiles")
+      .select("user_id, username")
+      .in("username", mentioned);
+    for (const p of mentionedProfiles ?? []) {
+      if (p.user_id === user.id || p.user_id === notifyUserId) continue;
+      await sendPushToUser(p.user_id, {
+        title: "You were tagged",
+        body: `${name} tagged you: ${text}`,
+        url: `/community/${id}`,
+      });
+    }
   }
 
   return NextResponse.json({ ok: true });

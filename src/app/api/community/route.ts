@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
+import { sendPushToUser } from "@/lib/push";
+import { extractMentions } from "@/lib/mentions";
 import type { CommunityPost } from "@/lib/types";
 
 export async function GET() {
@@ -52,13 +54,37 @@ export async function POST(request: Request) {
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const { error } = await supabase.from("community_posts").insert({
-    user_id: user.id,
-    author_username: profile?.username ?? null,
-    message,
-    photo_url: photoUrl,
-  });
+  const { data: inserted, error } = await supabase
+    .from("community_posts")
+    .insert({
+      user_id: user.id,
+      author_username: profile?.username ?? null,
+      message,
+      photo_url: photoUrl,
+    })
+    .select("id")
+    .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ ok: true });
+
+  if (message) {
+    const mentioned = extractMentions(message);
+    if (mentioned.length > 0) {
+      const { data: mentionedProfiles } = await supabase
+        .from("profiles")
+        .select("user_id, username")
+        .in("username", mentioned);
+      const name = profile?.username || "Someone";
+      for (const p of mentionedProfiles ?? []) {
+        if (p.user_id === user.id) continue;
+        await sendPushToUser(p.user_id, {
+          title: "You were tagged",
+          body: `${name} tagged you: ${message}`,
+          url: `/community/${inserted.id}`,
+        });
+      }
+    }
+  }
+
+  return NextResponse.json({ ok: true, id: inserted.id });
 }

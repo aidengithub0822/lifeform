@@ -304,6 +304,68 @@ create index if not exists community_posts_time_idx on public.community_posts (c
 -- Existing installs: posts can now carry a photo (Discover-style feed).
 alter table public.community_posts add column if not exists photo_url text;
 
+-- Mirror every profile gallery photo into the community feed as its own
+-- post — "post to your profile" and "show up in Community" are meant to be
+-- the same action, and the community feed already shows everyone (no
+-- follow filter), so mirroring alone makes new photos visible regardless
+-- of who follows whom. Plain-text community posts are NOT mirrored back
+-- onto a profile — that link only ever runs profile_photos -> community,
+-- never the other way.
+alter table public.profile_photos add column if not exists community_post_id uuid references public.community_posts(id) on delete set null;
+
+create or replace function public.mirror_profile_photo_to_community()
+returns trigger as $$
+declare
+  uname text;
+  new_post_id uuid;
+begin
+  select username into uname from public.profiles where user_id = new.user_id;
+  insert into public.community_posts (user_id, author_username, message, photo_url, created_at)
+  values (new.user_id, uname, coalesce(new.caption, ''), new.photo_url, new.created_at)
+  returning id into new_post_id;
+  new.community_post_id := new_post_id;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists mirror_profile_photo_to_community on public.profile_photos;
+create trigger mirror_profile_photo_to_community
+  before insert on public.profile_photos
+  for each row execute function public.mirror_profile_photo_to_community();
+
+-- Deleting a gallery photo removes its mirrored community post too, so a
+-- removed photo doesn't linger in the feed as an orphaned post.
+create or replace function public.unmirror_profile_photo_from_community()
+returns trigger as $$
+begin
+  if old.community_post_id is not null then
+    delete from public.community_posts where id = old.community_post_id;
+  end if;
+  return old;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists unmirror_profile_photo_from_community on public.profile_photos;
+create trigger unmirror_profile_photo_from_community
+  before delete on public.profile_photos
+  for each row execute function public.unmirror_profile_photo_from_community();
+
+-- Existing installs: backfill a mirrored community post for every profile
+-- photo uploaded before this trigger existed, preserving its original
+-- timestamp so the combined feed still sorts correctly.
+do $$
+declare
+  r record;
+  new_post_id uuid;
+begin
+  for r in select * from public.profile_photos where community_post_id is null loop
+    insert into public.community_posts (user_id, author_username, message, photo_url, created_at)
+    values (r.user_id, (select username from public.profiles where user_id = r.user_id), coalesce(r.caption, ''), r.photo_url, r.created_at)
+    returning id into new_post_id;
+    update public.profile_photos set community_post_id = new_post_id where id = r.id;
+  end loop;
+end $$;
+
 -- Replies on a community post — what makes a post open into its own thread
 -- page instead of being a flat, un-discussable list. Moderated the same way
 -- as top-level posts (checked by AI before insert). parent_id is null for a

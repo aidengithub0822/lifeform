@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import Avatar from "@/components/Avatar";
 import UserName from "@/components/UserName";
+import { CloseIcon } from "@/components/icons";
 
 interface Row {
   user_id: string;
@@ -68,12 +69,12 @@ export default function FollowListOverlay({
   return (
     <div className="fixed inset-0 z-[70] flex flex-col bg-zinc-950" onClick={onClose}>
       <div
-        className="flex items-center justify-between border-b border-zinc-800 px-4 py-3.5"
+        className="flex items-center justify-between border-b border-zinc-800 px-4 pb-3.5 pt-[max(env(safe-area-inset-top),20px)]"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-base font-bold capitalize">{mode}</p>
-        <button onClick={onClose} className="rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300">
-          Close
+        <button onClick={onClose} className="flex h-8 w-8 items-center justify-center rounded-full bg-zinc-900 text-zinc-300" aria-label="Close">
+          <CloseIcon className="h-4 w-4" />
         </button>
       </div>
       <div className="flex-1 overflow-y-auto" onClick={(e) => e.stopPropagation()}>

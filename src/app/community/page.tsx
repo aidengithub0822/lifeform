@@ -7,6 +7,9 @@ import { compressImageForUpload } from "@/lib/imageUpload";
 import AuthorLine from "@/components/AuthorLine";
 import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
+import MentionTextarea from "@/components/MentionTextarea";
+import MentionText from "@/components/MentionText";
+import { CameraIcon, CloseIcon, CommentIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
@@ -184,22 +187,18 @@ export default function CommunityPage() {
   return (
     <PullToRefresh onRefresh={load}>
       <div className="mx-auto max-w-md px-5 py-8">
-        <div className="flex items-center gap-2">
-          <h1 className="lf-glow rounded-full px-1 text-2xl font-bold">Community</h1>
-        </div>
-        <p className="mt-1.5 text-sm text-zinc-400">
-          A shared feed for anyone using lifeform — AI-moderated, so it stays worth reading.
-        </p>
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Community</h1>
+        <p className="mt-1 text-sm text-zinc-500">Everything the lifeform community is sharing, moderated so it stays worth reading.</p>
 
-        <div className="lf-gradient-border mt-5 flex gap-2.5 p-3">
-          <Avatar url={myAvatar} name="me" size={36} />
-          <div className="min-w-0 flex-1 space-y-2">
-            <textarea
+        <div className="mt-5 flex gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-3.5">
+          <Avatar url={myAvatar} name="me" size={38} />
+          <div className="min-w-0 flex-1 space-y-2.5">
+            <MentionTextarea
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              placeholder="Share a win, ask a question, start a discussion..."
+              onChange={setDraft}
+              placeholder="Share a win, ask a question, tag a creator with @..."
               rows={2}
-              className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
+              className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-[15px] leading-snug text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
             {photoPreview && (
               <div className="relative w-fit">
@@ -207,15 +206,17 @@ export default function CommunityPage() {
                 <img src={photoPreview} alt="" className="h-24 w-24 rounded-xl object-cover" />
                 <button
                   onClick={clearPhoto}
-                  className="absolute -right-1.5 -top-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
+                  aria-label="Remove photo"
                 >
-                  ✕
+                  <CloseIcon className="h-3 w-3" />
                 </button>
               </div>
             )}
             <div className="flex items-center justify-between gap-2">
-              <label className="cursor-pointer rounded-full border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800">
-                📷 Photo
+              <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                <CameraIcon className="h-4 w-4" />
+                Photo
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -229,19 +230,19 @@ export default function CommunityPage() {
                 <button
                   onClick={submitPost}
                   disabled={posting || (!draft.trim() && !photoFile)}
-                  className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-60"
+                  className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                 >
-                  {posting ? "Posting..." : "Post"}
+                  {posting ? "Posting…" : "Post"}
                 </button>
               </div>
             </div>
           </div>
         </div>
 
-        <div className="mt-6 space-y-3">
-          {loading && <p className="text-sm text-zinc-500">Loading...</p>}
+        <div className="mt-6 divide-y divide-zinc-900">
+          {loading && <p className="py-6 text-sm text-zinc-600">Loading…</p>}
           {!loading && posts?.length === 0 && (
-            <p className="rounded-2xl border border-dashed border-zinc-800 py-8 text-center text-sm text-zinc-500">
+            <p className="rounded-2xl border border-dashed border-zinc-800 py-10 text-center text-sm text-zinc-600">
               No posts yet — be the first.
             </p>
           )}
@@ -250,10 +251,7 @@ export default function CommunityPage() {
             const isEditing = editingId === post.id;
             const replies = commentCounts[post.id] ?? 0;
             return (
-              <div
-                key={post.id}
-                className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4 transition active:scale-[0.99]"
-              >
+              <div key={post.id} className="py-4 first:pt-0">
                 <AuthorLine
                   username={post.author_username}
                   avatarUrl={authors[post.user_id]?.avatar_url}
@@ -269,73 +267,45 @@ export default function CommunityPage() {
                       value={editDraft}
                       onChange={(e) => setEditDraft(e.target.value)}
                       rows={3}
-                      className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-sm outline-none focus:border-emerald-500"
+                      className="w-full resize-none rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-sm outline-none focus:border-zinc-600"
                     />
                     <div className="flex gap-2">
-                      <button
-                        onClick={() => saveEdit(post.id)}
-                        className="rounded-lg bg-emerald-500 px-3 py-1 text-xs font-semibold text-black"
-                      >
+                      <button onClick={() => saveEdit(post.id)} className="rounded-lg bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950">
                         Save
                       </button>
-                      <button
-                        onClick={() => setEditingId(null)}
-                        className="rounded-lg bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300"
-                      >
+                      <button onClick={() => setEditingId(null)} className="rounded-lg bg-zinc-800 px-3 py-1 text-xs font-medium text-zinc-300">
                         Cancel
                       </button>
                     </div>
                   </div>
                 ) : (
                   <Link href={`/community/${post.id}`} className="block">
-                    {post.message && (
-                      <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
-                        {post.message}
-                      </p>
-                    )}
+                    {post.message && <MentionText text={post.message} className="mt-2 text-[15px] leading-relaxed text-zinc-100" />}
                     {post.photo_url && (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={post.photo_url}
-                        alt=""
-                        className="mt-2.5 max-h-96 w-full rounded-xl object-cover"
-                      />
+                      <img src={post.photo_url} alt="" className="mt-2.5 max-h-96 w-full rounded-2xl object-cover" />
                     )}
                   </Link>
                 )}
 
                 {!isEditing && (
-                  <div className="mt-3 flex items-center gap-1 border-t border-zinc-800 pt-2.5">
-                    <Link
-                      href={`/community/${post.id}`}
-                      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800"
-                    >
-                      <span>💬</span>
-                      <span>{replies > 0 ? replies : "Reply"}</span>
+                  <div className="mt-2.5 flex items-center gap-4">
+                    <Link href={`/community/${post.id}`} className="flex items-center gap-1.5 text-zinc-500 active:opacity-60">
+                      <CommentIcon className="h-[18px] w-[18px]" />
+                      {replies > 0 && <span className="text-xs font-medium">{replies}</span>}
                     </Link>
-                    <button
-                      onClick={() => sharePost(post)}
-                      className="flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800"
-                    >
-                      <span>↗</span>
-                      <span>Share</span>
+                    <button onClick={() => sharePost(post)} className="flex items-center gap-1.5 text-zinc-500 active:opacity-60">
+                      <ShareIcon className="h-[18px] w-[18px]" />
                     </button>
                     {isAdmin && (
-                      <button
-                        onClick={() => startEdit(post)}
-                        className="ml-auto rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
-                      >
+                      <button onClick={() => startEdit(post)} className="ml-auto text-xs font-medium text-zinc-600 active:opacity-60">
                         Edit
                       </button>
                     )}
                     {canDelete && (
                       <button
-                        onClick={() =>
-                          isAdmin && post.user_id !== myUserId ? deleteAsAdmin(post.id) : deleteOwn(post.id)
-                        }
-                        className={`rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800 ${
-                          isAdmin ? "" : "ml-auto"
-                        }`}
+                        onClick={() => (isAdmin && post.user_id !== myUserId ? deleteAsAdmin(post.id) : deleteOwn(post.id))}
+                        className={`text-xs font-medium text-zinc-600 active:opacity-60 ${isAdmin ? "" : "ml-auto"}`}
                       >
                         Delete
                       </button>
