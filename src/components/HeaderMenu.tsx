@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import UserLink from "@/components/UserLink";
+import PushOptIn from "@/components/PushOptIn";
 import type { Feedback, Goal } from "@/lib/types";
 
 type Tab = "settings" | "info" | "feedback";
@@ -289,6 +290,8 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                       </div>
                     )}
                   </div>
+
+                  <PushOptIn />
 
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
                     <p className="text-sm font-semibold text-zinc-300">Current goal</p>

@@ -71,9 +71,20 @@ export default function PhotoLightbox({ photo, onClose }: { photo: ProfilePhoto;
     const body = draft.trim();
     if (!body || !myUserId) return;
     setPosting(true);
-    await supabase
+    const { error } = await supabase
       .from("photo_comments")
       .insert({ photo_id: photo.id, user_id: myUserId, author_username: myUsername, body });
+    if (!error && photo.user_id !== myUserId) {
+      fetch("/api/push/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toUserId: photo.user_id,
+          title: "New comment",
+          body: myUsername ? `${myUsername} commented: ${body}` : `New comment: ${body}`,
+        }),
+      }).catch(() => {});
+    }
     setDraft("");
     await load(myUserId);
     setPosting(false);

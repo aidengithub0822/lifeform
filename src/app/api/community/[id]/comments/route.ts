@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
+import { sendPushToUser } from "@/lib/push";
 import type { CommunityComment } from "@/lib/types";
 
 // GET — every reply on one community post, oldest first (thread order).
@@ -59,5 +60,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Notify the post's original author (not yourself replying to your own post).
+  const { data: post } = await supabase.from("community_posts").select("user_id").eq("id", id).maybeSingle();
+  if (post && post.user_id !== user.id) {
+    const name = profile?.username || "Someone";
+    await sendPushToUser(post.user_id, {
+      title: "New reply",
+      body: `${name} replied: ${text}`,
+      url: `/community/${id}`,
+    });
+  }
+
   return NextResponse.json({ ok: true });
 }

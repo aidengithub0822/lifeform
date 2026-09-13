@@ -12,6 +12,7 @@ export default function MessageThreadPage() {
   const supabase = createClient();
 
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myUsername, setMyUsername] = useState<string | null>(null);
   const [otherProfile, setOtherProfile] = useState<Profile | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
@@ -43,8 +44,12 @@ export default function MessageThreadPage() {
       }
       setMyUserId(user.id);
 
-      const profileRes = await supabase.from("profiles").select("*").eq("user_id", otherId).maybeSingle();
+      const [profileRes, myProfileRes] = await Promise.all([
+        supabase.from("profiles").select("*").eq("user_id", otherId).maybeSingle(),
+        supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle(),
+      ]);
       setOtherProfile(profileRes.data as Profile | null);
+      setMyUsername((myProfileRes.data as { username: string } | null)?.username ?? null);
 
       await loadThread(user.id);
       setLoading(false);
@@ -93,6 +98,17 @@ export default function MessageThreadPage() {
       // Roll back the optimistic message and let the user retry.
       setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
       setDraft(body);
+    } else {
+      fetch("/api/push/notify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          toUserId: otherId,
+          title: myUsername ? `${myUsername} sent you a message` : "New message",
+          body,
+          url: `/messages/${myUserId}`,
+        }),
+      }).catch(() => {}); // best-effort — a failed push never blocks sending the message
     }
     setSending(false);
   }

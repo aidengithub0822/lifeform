@@ -105,6 +105,15 @@ export interface Follow {
   created_at: string;
 }
 
+export interface PushSubscriptionRow {
+  id: string;
+  user_id: string;
+  endpoint: string;
+  p256dh: string;
+  auth_key: string;
+  created_at: string;
+}
+
 export interface ProfilePhoto {
   id: string;
   user_id: string;

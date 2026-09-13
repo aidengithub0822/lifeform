@@ -191,6 +191,21 @@ create table if not exists public.follows (
 create index if not exists follows_follower_idx on public.follows (follower_id);
 create index if not exists follows_following_idx on public.follows (following_id);
 
+-- Web Push subscriptions (one row per browser/device that opted in). Sending
+-- is done server-side with the service-role client (src/lib/push.ts), which
+-- bypasses RLS entirely — the policies below only govern what a signed-in
+-- user can do to their OWN subscription rows via the regular client
+-- (subscribe/unsubscribe from Settings).
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth_key text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user_idx on public.push_subscriptions (user_id);
+
 -- A single shared, AI-moderated community discussion feed — separate from
 -- the per-user "Comments" feedback wall. Every post is checked by the AI
 -- moderator BEFORE it's inserted, so nothing that fails moderation is ever
@@ -256,12 +271,13 @@ alter table public.community_comments enable row level security;
 alter table public.photo_likes enable row level security;
 alter table public.photo_comments enable row level security;
 alter table public.follows enable row level security;
+alter table public.push_subscriptions enable row level security;
 
 do $$
 declare
   t text;
 begin
-  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks','journal_entries'])
+  for t in select unnest(array['goals','food_logs','recipes','measurements','lifts','progress_photos','workouts','streaks','journal_entries','push_subscriptions'])
   loop
     execute format('drop policy if exists "owner_all" on public.%I', t);
     execute format(

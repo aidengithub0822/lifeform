@@ -172,3 +172,39 @@ dev` for real (not just to build):
 - `ANTHROPIC_API_KEY`
 - `ANTHROPIC_MODEL` (optional — routes fall back to
   `claude-sonnet-4-5-20250929` if unset)
+- `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — Web Push (see
+  "Push notifications" below). Generate a pair with
+  `npx web-push generate-vapid-keys`.
+- `VAPID_SUBJECT` (optional — a `mailto:` contact address web-push puts in
+  its request to the push service; falls back to a placeholder if unset)
+
+## Push notifications
+
+Web Push, not a native push service — works on Android/desktop Chrome
+immediately, and on iPhone once the PWA is added to the Home Screen (iOS
+16.4+; push does not work from inside plain Safari). Infra:
+
+- `supabase/schema.sql` → `push_subscriptions` table (one row per
+  browser/device), owner-only RLS.
+- `src/lib/push.ts` — server-only `sendPushToUser(userId, {title, body,
+  url})`, uses the service-role admin client (bypasses RLS) and the
+  `web-push` package with the VAPID keys above. Silently no-ops if the keys
+  aren't set. Cleans up subscriptions the browser has revoked (404/410).
+- `src/app/api/push/subscribe/route.ts` — POST saves a subscription (called
+  by `PushOptIn.tsx` after the browser grants permission), DELETE removes
+  one.
+- `src/app/api/push/notify/route.ts` — generic POST `{toUserId, title,
+  body, url?}` a signed-in client can call right after an action (new DM,
+  new follow, a photo comment) — see `messages/[userId]/page.tsx`,
+  `profile/[username]/page.tsx`'s `toggleFollow`, and
+  `PhotoLightbox.tsx`'s `submitComment` for the pattern. A server-side route
+  that already has the target user id handy (e.g. community replies) calls
+  `sendPushToUser` directly instead of round-tripping through this route.
+- `src/components/PushOptIn.tsx` — the Settings-tab toggle; requests
+  `Notification` permission, subscribes via `PushManager`, posts the
+  subscription. Detects "installed as an iOS PWA" via
+  `navigator.standalone` / `display-mode: standalone` and shows an "Add to
+  Home Screen first" message instead of a broken permission prompt when
+  it isn't.
+- `public/sw.js` — `push` event shows the notification; `notificationclick`
+  focuses an open tab (or opens one) at the payload's `url`.

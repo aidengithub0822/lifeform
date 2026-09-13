@@ -20,6 +20,7 @@ export default function ProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [photos, setPhotos] = useState<ProfilePhoto[]>([]);
   const [myUserId, setMyUserId] = useState<string | null>(null);
+  const [myUsername, setMyUsername] = useState<string | null>(null);
 
   const [bioDraft, setBioDraft] = useState("");
   const [savingBio, setSavingBio] = useState(false);
@@ -78,6 +79,10 @@ export default function ProfilePage() {
             .maybeSingle()
         : Promise.resolve({ data: null }),
     ]);
+    if (me.user) {
+      const myProfileRes = await supabase.from("profiles").select("username").eq("user_id", me.user.id).maybeSingle();
+      setMyUsername((myProfileRes.data as { username: string } | null)?.username ?? null);
+    }
     setPhotos(gallery ?? []);
     setFollowerCount(followerRes.count ?? 0);
     setFollowingCount(followingRes.count ?? 0);
@@ -204,9 +209,21 @@ export default function ProfilePage() {
           .eq("follower_id", myUserId)
           .eq("following_id", profile.user_id);
       } else {
-        await supabase
+        const { error: followError } = await supabase
           .from("follows")
           .insert({ follower_id: myUserId, following_id: profile.user_id });
+        if (!followError) {
+          fetch("/api/push/notify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              toUserId: profile.user_id,
+              title: "New follower",
+              body: myUsername ? `${myUsername} started following you` : "Someone started following you",
+              url: myUsername ? `/profile/${myUsername}` : "/",
+            }),
+          }).catch(() => {});
+        }
       }
     } finally {
       setFollowBusy(false);
