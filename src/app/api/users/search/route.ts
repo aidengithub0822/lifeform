@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("user_id, username, avatar_url, name_color, verified")
+    .select("user_id, username, avatar_url, name_color, verified, rank")
     .ilike("username", `%${q}%`)
     .neq("user_id", user.id)
     .order("username", { ascending: true })

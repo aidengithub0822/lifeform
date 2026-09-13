@@ -64,11 +64,11 @@ export default function PhotoLightbox({
     if (ids.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, avatar_url, name_color, verified")
+        .select("user_id, avatar_url, name_color, verified, rank")
         .in("user_id", ids)
-        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean }[]>();
+        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean; rank: string }[]>();
       const map: Record<string, AuthorInfo> = {};
-      for (const p of profiles ?? []) map[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified };
+      for (const p of profiles ?? []) map[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified, rank: p.rank };
       setAuthors(map);
     }
   }
@@ -245,6 +245,7 @@ export default function PhotoLightbox({
                     avatarUrl={a?.avatar_url}
                     color={a?.name_color}
                     verified={a?.verified}
+                    rank={a?.rank}
                     createdAt={c.created_at}
                   />
                   <p className="mt-1.5 whitespace-pre-wrap text-sm text-zinc-200">{c.body}</p>

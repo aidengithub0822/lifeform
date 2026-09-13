@@ -49,6 +49,9 @@ export default function Flame() {
       setData(json);
       syncAppBadge(json.currentStreak);
     }
+    // Best-effort — recomputes the caller's rank tag off the fresh XP/streak
+    // state. Never blocks the streak UI on this.
+    fetch("/api/rank", { method: "POST" }).catch(() => {});
   }
 
   useEffect(() => {
@@ -186,6 +189,8 @@ export default function Flame() {
                 </button>
               </div>
               <p className="mt-2 text-[11px] text-zinc-600">
+                Tap <span className="text-zinc-400">Copy</span> — the box above is truncated on screen, so
+                manually selecting the text can grab an incomplete link and the widget will show an error.
                 Treat this link like a password — anyone with it can see your streak.
               </p>
             </div>

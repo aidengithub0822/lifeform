@@ -123,7 +123,7 @@ export default function MessagesInboxPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
                   {p ? (
-                    <UserName username={p.username} color={p.name_color} verified={p.verified} className="text-sm font-semibold text-zinc-100" />
+                    <UserName username={p.username} color={p.name_color} verified={p.verified} rank={p.rank} className="text-sm font-semibold text-zinc-100" />
                   ) : (
                     <p className="truncate text-sm font-semibold text-zinc-100">Someone</p>
                   )}

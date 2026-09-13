@@ -57,6 +57,7 @@ function CommentNode({
           avatarUrl={a?.avatar_url}
           color={a?.name_color}
           verified={a?.verified}
+          rank={a?.rank}
           createdAt={comment.created_at}
         />
         <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{comment.body}</p>
@@ -180,12 +181,12 @@ export default function CommunityThreadPage() {
     if (ids.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, avatar_url, name_color, verified")
+        .select("user_id, avatar_url, name_color, verified, rank")
         .in("user_id", ids)
-        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean }[]>();
+        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean; rank: string }[]>();
       const authorMap: Record<string, AuthorInfo> = {};
       for (const pr of profiles ?? [])
-        authorMap[pr.user_id] = { avatar_url: pr.avatar_url, name_color: pr.name_color, verified: pr.verified };
+        authorMap[pr.user_id] = { avatar_url: pr.avatar_url, name_color: pr.name_color, verified: pr.verified, rank: pr.rank };
       setAuthors(authorMap);
     }
     setLoading(false);
@@ -338,6 +339,7 @@ export default function CommunityThreadPage() {
             avatarUrl={authors[post.user_id]?.avatar_url}
             color={authors[post.user_id]?.name_color}
             verified={authors[post.user_id]?.verified}
+            rank={authors[post.user_id]?.rank}
             createdAt={post.created_at}
           />
           {post.message && (

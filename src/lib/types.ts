@@ -97,6 +97,8 @@ export interface Profile {
   avatar_url: string | null;
   name_color: string | null;
   verified: boolean;
+  rank: string;
+  created_at: string;
   updated_at: string;
 }
 
@@ -130,6 +132,7 @@ export interface Message {
   recipient_id: string;
   body: string | null;
   photo_url: string | null;
+  read_at: string | null;
   created_at: string;
 }
 
@@ -165,6 +168,7 @@ export interface AuthorInfo {
   avatar_url: string | null;
   name_color: string | null;
   verified: boolean;
+  rank: string;
 }
 
 export interface PhotoLike {

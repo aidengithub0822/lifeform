@@ -34,6 +34,20 @@ export default function MessageThreadPage() {
       .order("created_at", { ascending: true })
       .returns<Message[]>();
     setMessages(data ?? []);
+    markIncomingRead(uid);
+  }
+
+  // Read receipts: mark every message the other person sent me as read the
+  // moment I have the thread open. RLS only lets me touch read_at on rows
+  // addressed to me (see the messages_mark_read policy) — everything else
+  // on the row is pinned by a trigger even if I tried.
+  async function markIncomingRead(uid: string) {
+    await supabase
+      .from("messages")
+      .update({ read_at: new Date().toISOString() })
+      .eq("sender_id", otherId)
+      .eq("recipient_id", uid)
+      .is("read_at", null);
   }
 
   useEffect(() => {
@@ -69,6 +83,19 @@ export default function MessageThreadPage() {
             const row = payload.new as Message;
             if (row.sender_id === otherId) {
               setMessages((prev) => [...prev, row]);
+              markIncomingRead(user.id);
+            }
+          }
+        )
+        .on(
+          // Lets a "Seen" indicator update live once the other person opens
+          // the thread and read_at gets set on a message I sent them.
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "messages", filter: `sender_id=eq.${user.id}` },
+          (payload) => {
+            const row = payload.new as Message;
+            if (row.recipient_id === otherId) {
+              setMessages((prev) => prev.map((m) => (m.id === row.id ? row : m)));
             }
           }
         )
@@ -113,6 +140,7 @@ export default function MessageThreadPage() {
       recipient_id: otherId,
       body: body || null,
       photo_url: pendingPreview,
+      read_at: null,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);
@@ -189,8 +217,9 @@ export default function MessageThreadPage() {
             Say hi to {otherProfile?.username ?? "them"} 👋
           </p>
         )}
-        {messages.map((m) => {
+        {messages.map((m, i) => {
           const mine = m.sender_id === myUserId;
+          const isLastMine = mine && i === messages.length - 1;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
               <div className="max-w-[75%] space-y-1">
@@ -206,6 +235,9 @@ export default function MessageThreadPage() {
                   >
                     {m.body}
                   </div>
+                )}
+                {isLastMine && (
+                  <p className="pr-1 text-right text-[11px] text-zinc-500">{m.read_at ? "Seen" : "Delivered"}</p>
                 )}
               </div>
             </div>

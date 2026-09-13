@@ -18,26 +18,39 @@ export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token");
   if (!token) return NextResponse.json({ error: "Missing token" }, { status: 400 });
 
-  const admin = createAdminClient();
-  const { data: streakRow } = await admin
-    .from("streaks")
-    .select("user_id")
-    .eq("widget_token", token)
-    .maybeSingle();
+  try {
+    const admin = createAdminClient();
+    const { data: streakRow, error: lookupError } = await admin
+      .from("streaks")
+      .select("user_id")
+      .eq("widget_token", token.trim())
+      .maybeSingle();
 
-  if (!streakRow) return NextResponse.json({ error: "Invalid token" }, { status: 404 });
+    if (lookupError) {
+      return NextResponse.json({ error: `Token lookup failed: ${lookupError.message}` }, { status: 500 });
+    }
+    if (!streakRow) return NextResponse.json({ error: "Invalid token" }, { status: 404 });
 
-  const result = await loadAndReconcileStreak(admin, streakRow.user_id);
+    const result = await loadAndReconcileStreak(admin, streakRow.user_id);
 
-  // Return only what a widget needs to render — nothing else about the account.
-  return NextResponse.json({
-    currentStreak: result.currentStreak,
-    longestStreak: result.longestStreak,
-    xp: result.xp,
-    flameTier: result.flameTier,
-    tierColor: result.tierColor,
-    tierLabel: result.tierLabel,
-    freezesAvailable: result.freezesAvailable,
-    today: result.today,
-  });
+    // Return only what a widget needs to render — nothing else about the account.
+    return NextResponse.json({
+      currentStreak: result.currentStreak,
+      longestStreak: result.longestStreak,
+      xp: result.xp,
+      flameTier: result.flameTier,
+      tierColor: result.tierColor,
+      tierLabel: result.tierLabel,
+      freezesAvailable: result.freezesAvailable,
+      today: result.today,
+    });
+  } catch (err) {
+    // A crash here would otherwise come back to the widget as Vercel's HTML
+    // error page, which isn't valid JSON and shows up as a useless "couldn't
+    // load" message — surface the real reason instead.
+    return NextResponse.json(
+      { error: `Widget endpoint crashed: ${err instanceof Error ? err.message : String(err)}` },
+      { status: 500 }
+    );
+  }
 }

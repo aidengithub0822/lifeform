@@ -148,12 +148,28 @@ alter table public.profiles add column if not exists avatar_url text;
 alter table public.profiles add column if not exists name_color text;
 alter table public.profiles add column if not exists verified boolean not null default false;
 
+-- Strength/consistency rank tag (newbie/bronze/.../grand_champion) — see
+-- src/lib/rank.ts for the tier table and anti-cheat logic. Computed
+-- server-side from lifts/measurements/streak XP/account age and written
+-- only by /api/rank using the service-role client, so — like name_color
+-- and verified above — a regular authenticated update can never set this
+-- column directly (see the trigger below).
+alter table public.profiles add column if not exists rank text not null default 'newbie';
+-- created_at is needed to gate ranks on "how long they've been on the app".
+-- Backfill existing rows from their actual signup date (auth.users) rather
+-- than defaulting everyone to "today", which would unfairly zero out
+-- longtime users' account age the moment this column is added.
+alter table public.profiles add column if not exists created_at timestamptz not null default now();
+update public.profiles p set created_at = u.created_at
+  from auth.users u where p.user_id = u.id and p.created_at > u.created_at;
+
 create or replace function public.lock_profile_admin_fields()
 returns trigger as $$
 begin
   if auth.role() <> 'service_role' then
     new.name_color := old.name_color;
     new.verified := old.verified;
+    new.rank := old.rank;
   end if;
   return new;
 end;
@@ -193,6 +209,10 @@ create index if not exists messages_recipient_time_idx on public.messages (recip
 -- Existing installs: a message can now be a photo instead of (or with) text.
 alter table public.messages alter column body drop not null;
 alter table public.messages add column if not exists photo_url text;
+-- Read receipts: set by the recipient (via an update they're allowed to make
+-- under the existing "owner_all"-style policy below, restricted to rows
+-- addressed to them) the moment they open the thread.
+alter table public.messages add column if not exists read_at timestamptz;
 
 -- Free-form dated journal entries, shown on the Progress tab. Multiple
 -- entries per day are allowed (unlike measurements, which are one-per-day).
@@ -448,6 +468,35 @@ create policy "messages_select_own" on public.messages
 drop policy if exists "messages_insert_own" on public.messages;
 create policy "messages_insert_own" on public.messages
   for insert with check (auth.uid() = sender_id);
+
+-- Read receipts: the RECIPIENT (never the sender) can mark a message read —
+-- this is the only field a recipient is allowed to touch on someone else's
+-- row, enforced by the trigger below rather than a column-level grant.
+drop policy if exists "messages_mark_read" on public.messages;
+create policy "messages_mark_read" on public.messages
+  for update using (auth.uid() = recipient_id) with check (auth.uid() = recipient_id);
+
+create or replace function public.lock_message_read_receipt()
+returns trigger as $$
+begin
+  -- Only read_at may change via a regular (non-service-role) update; every
+  -- other field snaps back to its previous value so a recipient can't
+  -- rewrite a message's content while marking it read.
+  if auth.role() <> 'service_role' then
+    new.sender_id := old.sender_id;
+    new.recipient_id := old.recipient_id;
+    new.body := old.body;
+    new.photo_url := old.photo_url;
+    new.created_at := old.created_at;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists lock_message_read_receipt on public.messages;
+create trigger lock_message_read_receipt
+  before update on public.messages
+  for each row execute function public.lock_message_read_receipt();
 
 -- Enable Realtime (live updates without refreshing) for the messages table.
 -- Safe to re-run: adding a table that's already in the publication just

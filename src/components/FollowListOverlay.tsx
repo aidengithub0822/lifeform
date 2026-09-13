@@ -12,6 +12,7 @@ interface Row {
   avatar_url: string | null;
   name_color: string | null;
   verified: boolean;
+  rank: string;
 }
 
 /** Full-screen list of a profile's followers or following, opened by
@@ -41,7 +42,7 @@ export default function FollowListOverlay({
       }
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, username, avatar_url, name_color, verified")
+        .select("user_id, username, avatar_url, name_color, verified, rank")
         .in("user_id", ids)
         .returns<Row[]>();
       setRows(profiles ?? []);
@@ -76,7 +77,7 @@ export default function FollowListOverlay({
             className="flex items-center gap-3 px-4 py-2.5 active:bg-zinc-900"
           >
             <Avatar url={r.avatar_url} name={r.username} size={40} />
-            <UserName username={r.username} color={r.name_color} verified={r.verified} className="text-sm font-semibold" />
+            <UserName username={r.username} color={r.name_color} verified={r.verified} rank={r.rank} className="text-sm font-semibold" />
           </Link>
         ))}
       </div>

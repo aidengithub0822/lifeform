@@ -14,6 +14,7 @@ export default function AuthorLine({
   fallback = "Someone",
   color,
   verified,
+  rank,
 }: {
   username: string | null | undefined;
   avatarUrl?: string | null;
@@ -21,12 +22,13 @@ export default function AuthorLine({
   fallback?: string;
   color?: string | null;
   verified?: boolean;
+  rank?: string | null;
 }) {
   const inner = (
     <div className="flex min-w-0 items-center gap-2">
       <Avatar url={avatarUrl} name={username || fallback} size={28} />
       {username ? (
-        <UserName username={username} color={color} verified={verified} className="text-sm font-semibold text-zinc-200" />
+        <UserName username={username} color={color} verified={verified} rank={rank} className="text-sm font-semibold text-zinc-200" />
       ) : (
         <span className="truncate text-sm font-semibold text-zinc-200">{fallback}</span>
       )}

@@ -1,0 +1,175 @@
+// Pure rank logic — no I/O — mirrors the shape of streak.ts.
+//
+// Ranks reward being on the app a long time AND making a drastic change
+// from where someone started: measured by strength gained (a validated
+// gender-appropriate 1-rep-max) OR bodyweight lost, gated by account age
+// and XP so nobody can rank up overnight. Reaching a tier requires the
+// time/XP gate AND at least one of the strength/weight-loss gates — the
+// higher of the two "drastic change" paths is what counts.
+//
+// Anti-cheat is deliberately generous rather than perfectly rigorous (this
+// is a fitness app, not a competition federation), but it rules out the
+// obvious ways to fake a rank: a single made-up log entry, a one-day
+// "before/after" number, or a rep-heavy set standing in for a real max.
+
+export type RankTier =
+  | "newbie"
+  | "bronze"
+  | "silver"
+  | "gold"
+  | "platinum"
+  | "diamond"
+  | "champion"
+  | "grand_champion";
+
+export interface RankTierMeta {
+  tier: RankTier;
+  label: string;
+  /** Name color applied when the user has no dev-assigned override. null = default text color. */
+  color: string | null;
+  minAccountAgeDays: number;
+  minXp: number;
+  /** Validated near-max lift (bench for men, squat for women) required, in lb. */
+  liftLb: number;
+  /** Sustained bodyweight loss required, as % of starting weight. */
+  lossPct: number;
+}
+
+// Grand Champion is pinned to the numbers actually requested: 405 bench for
+// men, 405 squat for women. The tiers below it scale down from that toward
+// a genuine beginner number, evenly enough that each tier feels earned.
+export const RANK_TIERS: RankTierMeta[] = [
+  { tier: "newbie", label: "Newbie", color: null, minAccountAgeDays: 0, minXp: 0, liftLb: 0, lossPct: 0 },
+  { tier: "bronze", label: "Bronze", color: "#92400e", minAccountAgeDays: 14, minXp: 200, liftLb: 135, lossPct: 5 },
+  { tier: "silver", label: "Silver", color: "#9ca3af", minAccountAgeDays: 30, minXp: 500, liftLb: 185, lossPct: 10 },
+  { tier: "gold", label: "Gold", color: "#eab308", minAccountAgeDays: 60, minXp: 1000, liftLb: 225, lossPct: 15 },
+  { tier: "platinum", label: "Platinum", color: "#7dd3fc", minAccountAgeDays: 120, minXp: 2000, liftLb: 275, lossPct: 20 },
+  { tier: "diamond", label: "Diamond", color: "#1d4ed8", minAccountAgeDays: 180, minXp: 3500, liftLb: 315, lossPct: 25 },
+  { tier: "champion", label: "Champion", color: "#9333ea", minAccountAgeDays: 270, minXp: 5000, liftLb: 365, lossPct: 30 },
+  { tier: "grand_champion", label: "Grand Champion", color: "#ec4899", minAccountAgeDays: 365, minXp: 8000, liftLb: 405, lossPct: 35 },
+];
+
+export function rankMeta(tier: string | null | undefined): RankTierMeta {
+  return RANK_TIERS.find((t) => t.tier === tier) ?? RANK_TIERS[0];
+}
+
+export function isBenchName(name: string): boolean {
+  return /bench/i.test(name);
+}
+
+export function isSquatName(name: string): boolean {
+  return /squat/i.test(name);
+}
+
+export interface LiftRow {
+  logged_at: string;
+  weight_lb: number;
+  reps: number;
+}
+
+const MIN_NEAR_MAX_LOGS = 3; // need at least this many near-max attempts to trust a "max" at all
+const MAX_PLAUSIBLE_JUMP_LB = 15; // a single new max can't leap more than this over the running max
+const MAX_MAX_REPS = 5; // only near-max effort sets (low reps) count toward a 1RM-ish number
+
+/**
+ * Best validated near-max lift for one exercise. Filters to low-rep sets
+ * (a "225x20" doesn't prove a 225 max), requires a minimum number of such
+ * logs so one entry can't manufacture a max, and walks them in time order
+ * rejecting any single jump implausibly larger than real progression.
+ */
+export function bestValidatedMax(rows: LiftRow[]): number {
+  const nearMax = rows
+    .filter((r) => r.reps >= 1 && r.reps <= MAX_MAX_REPS && r.weight_lb > 0)
+    .sort((a, b) => a.logged_at.localeCompare(b.logged_at));
+  if (nearMax.length < MIN_NEAR_MAX_LOGS) return 0;
+
+  let runningMax = 0;
+  for (const r of nearMax) {
+    const jump = r.weight_lb - runningMax;
+    if (runningMax === 0 || jump <= MAX_PLAUSIBLE_JUMP_LB) {
+      runningMax = Math.max(runningMax, r.weight_lb);
+    }
+    // else: treat as an outlier (typo or faked entry) — it doesn't count.
+  }
+  return runningMax;
+}
+
+export interface WeightRow {
+  logged_at: string;
+  weight_lb: number | null;
+}
+
+const MIN_MEASUREMENTS = 5;
+const MIN_SPAN_DAYS = 30;
+const MAX_PLAUSIBLE_LOSS_LB_PER_WEEK = 3;
+
+/**
+ * Validated sustained weight-loss percentage. Averages the first/last few
+ * measurements (so one lowball or one rebound entry can't swing the number),
+ * requires the history to span a real amount of time, and caps the counted
+ * loss at a healthy sustainable rate so a single fabricated "before" weight
+ * can't manufacture a huge percentage.
+ */
+export function validatedWeightLossPct(rows: WeightRow[]): number {
+  const sorted = rows
+    .filter((r): r is { logged_at: string; weight_lb: number } => typeof r.weight_lb === "number" && r.weight_lb > 0)
+    .sort((a, b) => a.logged_at.localeCompare(b.logged_at));
+  if (sorted.length < MIN_MEASUREMENTS) return 0;
+
+  const spanDays = daysBetween(sorted[0].logged_at, sorted[sorted.length - 1].logged_at);
+  if (spanDays < MIN_SPAN_DAYS) return 0;
+
+  const edgeCount = Math.min(3, Math.floor(sorted.length / 2) || 1);
+  const startAvg = average(sorted.slice(0, edgeCount).map((r) => r.weight_lb));
+  const endAvg = average(sorted.slice(-edgeCount).map((r) => r.weight_lb));
+  const rawLoss = startAvg - endAvg;
+  if (rawLoss <= 0) return 0;
+
+  const maxPlausibleLoss = (spanDays / 7) * MAX_PLAUSIBLE_LOSS_LB_PER_WEEK;
+  const clampedLoss = Math.min(rawLoss, maxPlausibleLoss);
+  return (clampedLoss / startAvg) * 100;
+}
+
+export function daysBetween(a: string, b: string): number {
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  return Math.max(0, Math.floor(ms / 86400000));
+}
+
+function average(nums: number[]): number {
+  return nums.reduce((a, b) => a + b, 0) / nums.length;
+}
+
+export interface ComputeRankInput {
+  accountCreatedAt: string;
+  xp: number;
+  sex: string | null;
+  benchMaxLb: number;
+  squatMaxLb: number;
+  weightLossPct: number;
+}
+
+/**
+ * Highest tier whose time/XP gate AND (strength OR weight-loss) gate both
+ * pass. Men are judged on bench, women on squat, per the spec; anyone whose
+ * sex isn't set yet gets whichever of the two is more favorable so a missing
+ * profile field never blocks ranking up.
+ */
+export function computeRank(input: ComputeRankInput): RankTier {
+  const accountAgeDays = daysBetween(input.accountCreatedAt, new Date().toISOString());
+  const sex = (input.sex ?? "").trim().toLowerCase();
+  const strengthLb =
+    sex === "male" || sex === "man" || sex === "m"
+      ? input.benchMaxLb
+      : sex === "female" || sex === "woman" || sex === "f"
+        ? input.squatMaxLb
+        : Math.max(input.benchMaxLb, input.squatMaxLb);
+
+  let best: RankTier = "newbie";
+  for (const t of RANK_TIERS) {
+    if (t.tier === "newbie") continue;
+    const timeOk = accountAgeDays >= t.minAccountAgeDays && input.xp >= t.minXp;
+    const changeOk = strengthLb >= t.liftLb || input.weightLossPct >= t.lossPct;
+    if (timeOk && changeOk) best = t.tier;
+  }
+  return best;
+}

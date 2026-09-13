@@ -45,16 +45,16 @@ export default function CommunityPage() {
               .returns<{ post_id: string }[]>(),
             supabase
               .from("profiles")
-              .select("user_id, avatar_url, name_color, verified")
+              .select("user_id, avatar_url, name_color, verified, rank")
               .in("user_id", ids)
-              .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean }[]>(),
+              .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean; rank: string }[]>(),
           ]);
           const counts: Record<string, number> = {};
           for (const c of comments ?? []) counts[c.post_id] = (counts[c.post_id] ?? 0) + 1;
           setCommentCounts(counts);
           const authorMap: Record<string, AuthorInfo> = {};
           for (const p of profiles ?? [])
-            authorMap[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified };
+            authorMap[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified, rank: p.rank };
           setAuthors(authorMap);
         }
       }
@@ -259,6 +259,7 @@ export default function CommunityPage() {
                   avatarUrl={authors[post.user_id]?.avatar_url}
                   color={authors[post.user_id]?.name_color}
                   verified={authors[post.user_id]?.verified}
+                  rank={authors[post.user_id]?.rank}
                   createdAt={post.created_at}
                 />
 

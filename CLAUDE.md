@@ -191,6 +191,50 @@ leftover conventions in this file make sense.
 - **Messages can carry a photo** (`messages.photo_url`, `body` is now
   nullable since a message can be photo-only) — uploaded the same way, to
   `<user_id>/messages/`.
+- **DM read receipts**: `messages.read_at`. A recipient (never the sender)
+  can update it — `messages_mark_read` RLS policy plus the
+  `lock_message_read_receipt` trigger pin every other column on the row so
+  marking a message read can't be used to edit its content. Set on thread
+  open and on each realtime INSERT while the thread is open
+  (`messages/[userId]/page.tsx`); the sender sees it live via a second
+  realtime subscription on `UPDATE ... filter sender_id=eq.<me>`. Shown as
+  "Seen"/"Delivered" under your own last message in the thread.
+- **Rank system** (`src/lib/rank.ts`): a colored name tag — Newbie (no
+  color) → Bronze → Silver → Gold → Platinum → Diamond → Champion → Grand
+  Champion (pink) — earned automatically, never settable by the user or
+  even by dev directly (a dev-assigned `name_color` always overrides it
+  when set, via the same priority `UserName.tsx` already used for the
+  gradient color). A tier requires BOTH a minimum account age + XP (from
+  `streaks.xp`) AND either a validated gender-appropriate lift (bench for
+  men, squat for women, judged by `goals.sex`) or a sustained bodyweight
+  loss — Grand Champion is pinned to the literal spec (405 lb). Anti-cheat
+  lives in `bestValidatedMax`/`validatedWeightLossPct`: only near-max (≤5
+  rep) sets count toward a lift max, at least 3 of them are required, and a
+  single entry can't jump the running max by more than 15 lb; weight loss
+  needs ≥5 measurements spanning ≥30 days, averaged at each end, capped at
+  a plausible 3 lb/week. `profiles.rank` + `profiles.created_at` are
+  locked the same way as `name_color`/`verified` (extended
+  `lock_profile_admin_fields` trigger) — only `/api/rank` (POST, reads the
+  caller's own data through their normal session, writes with the
+  service-role client) can change it. Recomputed fire-and-forget from
+  `Flame.tsx` every time the streak loads, so it stays fresh without a cron
+  job. Every author-map query that already carries `name_color`/`verified`
+  (community, comments, photo comments, follow lists, search, DMs) also
+  carries `rank` — `AuthorInfo`/`Profile` in `types.ts` both have it.
+- **Dev force-friend**: `/api/admin/force-friend` (dev-mode gated) makes
+  the mutual follow that "developer mode auto-follows on profile visit"
+  doesn't — it inserts BOTH directions (dev→target and target→dev) via the
+  service-role client, since RLS only ever lets a user insert a follow row
+  as themselves. Button lives in the profile page's dev tools panel when
+  viewing someone else's profile.
+- **Streak widget** (`scriptable/lifeform-widget.js` + `/api/widget`): both
+  sides now surface the real failure instead of going blank or showing a
+  generic message — the API route catches and returns any crash as JSON
+  (so Scriptable never gets Vercel's HTML error page, which fails to parse
+  and used to show as "couldn't load data" with no way to tell why), and
+  the script itself wraps rendering in try/catch and reports the actual
+  HTTP status/error text. If it ever breaks again, whatever text the
+  widget shows IS the diagnostic — check that message first.
 
 ## Types & schema
 

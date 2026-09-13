@@ -11,6 +11,7 @@ import Avatar from "@/components/Avatar";
 import UserName from "@/components/UserName";
 import FollowListOverlay from "@/components/FollowListOverlay";
 import { NAME_COLOR_PRESETS, RESERVED_DEV_COLOR } from "@/lib/nameColor";
+import { rankMeta } from "@/lib/rank";
 import type { Profile, ProfilePhoto } from "@/lib/types";
 
 export default function ProfilePage() {
@@ -36,6 +37,8 @@ export default function ProfilePage() {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const [followListMode, setFollowListMode] = useState<"followers" | "following" | null>(null);
   const [devColorBusy, setDevColorBusy] = useState(false);
+  const [forceFriendBusy, setForceFriendBusy] = useState(false);
+  const [forceFriendDone, setForceFriendDone] = useState(false);
 
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -252,6 +255,24 @@ export default function ProfilePage() {
     }
   }
 
+  async function forceFriend() {
+    if (!profile || forceFriendBusy) return;
+    setForceFriendBusy(true);
+    try {
+      const res = await fetch("/api/admin/force-friend", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetUserId: profile.user_id }),
+      });
+      if (res.ok) {
+        setForceFriendDone(true);
+        await load();
+      }
+    } finally {
+      setForceFriendBusy(false);
+    }
+  }
+
   async function toggleVerified() {
     if (!profile || devColorBusy) return;
     setDevColorBusy(true);
@@ -333,8 +354,13 @@ export default function ProfilePage() {
       </div>
 
       <h1 className="mt-3">
-        <UserName username={profile.username} color={profile.name_color} verified={profile.verified} className="text-base font-bold" />
+        <UserName username={profile.username} color={profile.name_color} verified={profile.verified} rank={profile.rank} className="text-base font-bold" />
       </h1>
+      {profile.rank !== "newbie" && (
+        <p className="mt-0.5 text-xs font-semibold" style={{ color: rankMeta(profile.rank).color ?? undefined }}>
+          {rankMeta(profile.rank).label} rank
+        </p>
+      )}
 
       <div className="mt-1.5">
         {isOwn ? (
@@ -434,6 +460,15 @@ export default function ProfilePage() {
               </button>
             )}
           </div>
+          {!isOwn && (
+            <button
+              onClick={forceFriend}
+              disabled={forceFriendBusy}
+              className="mt-2.5 w-full rounded-xl border border-zinc-700 bg-zinc-950 py-1.5 text-xs font-semibold text-zinc-300 disabled:opacity-60"
+            >
+              {forceFriendBusy ? "Forcing..." : forceFriendDone ? "Mutual follow forced ✓" : "Force friend (mutual follow)"}
+            </button>
+          )}
         </div>
       )}
 
