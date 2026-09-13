@@ -15,8 +15,18 @@ import {
 } from "@/lib/trainingSplits";
 import type { TrainingPlan, Lift } from "@/lib/types";
 import XpSparkToast from "@/components/XpSparkToast";
+import MuscleMapOverlay from "@/components/MuscleMapOverlay";
+import { rankMeta, type RankTier } from "@/lib/rank";
 
 type Sex = "male" | "female";
+
+interface MuscleRankApiResult {
+  muscle: MuscleGroup;
+  tier: RankTier;
+  score: number;
+  bestLift: { name: string; weight_lb: number; reps: number } | null;
+  totalSetsLogged: number;
+}
 
 // Inline set-logging form shown under a tapped exercise row. Kept as its own
 // component so each row owns its own weight/reps/sets draft state instead of
@@ -131,6 +141,8 @@ export default function FitnessPage() {
   const [loggedNames, setLoggedNames] = useState<Set<string>>(new Set());
   const [pickerMuscle, setPickerMuscle] = useState<MuscleGroup | null>(null);
   const [showPicker, setShowPicker] = useState(false);
+  const [muscleRanks, setMuscleRanks] = useState<MuscleRankApiResult[] | null>(null);
+  const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
 
   useEffect(() => {
 
@@ -142,14 +154,30 @@ export default function FitnessPage() {
       }
       setPlanLoading(false);
     })();
+    refreshMuscleRanks();
   }, []);
+
+  async function refreshMuscleRanks() {
+    const res = await fetch("/api/muscle-rank");
+    if (res.ok) {
+      const body = await res.json();
+      setMuscleRanks(body.ranks);
+    }
+  }
 
   const split = plan ? SPLITS[plan.split_type] : null;
   const day = plan ? currentDay(plan.split_type, plan.day_index) : null;
 
+  const ranksByMuscle: Partial<Record<MuscleGroup, RankTier>> = {};
+  for (const r of muscleRanks ?? []) ranksByMuscle[r.muscle] = r.tier;
+  const selectedRank = muscleRanks?.find((r) => r.muscle === selectedMuscle) ?? null;
+
   function markLogged(exerciseName: string) {
     setLoggedNames((prev) => new Set(prev).add(exerciseName));
     setOpenExercise(null);
+    // The set that was just logged may have moved this muscle's rank —
+    // refresh so the map reflects it without a full page reload.
+    refreshMuscleRanks();
   }
 
   async function logWorkout() {
@@ -309,16 +337,39 @@ export default function FitnessPage() {
         </button>
       </div>
 
-      <div className="lf-gradient-border mt-5 overflow-hidden p-2">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={sex === "male" ? "/fitness/male-diagram.jpg" : "/fitness/female-diagram.jpg"}
-          alt={`${sex === "male" ? "Male" : "Female"} muscle group diagram, front and back`}
-          className="w-full rounded-xl object-contain"
-        />
-      </div>
+      <p className="mt-4 text-xs text-[#71717a]">
+        Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
+      </p>
+      <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />
 
-      <div className="mt-6 grid grid-cols-3 gap-2.5">
+      {selectedRank && (
+        <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
+            <span
+              className="rounded-full px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-black"
+              style={{ background: rankMeta(selectedRank.tier).color ?? "#3f3f46", color: rankMeta(selectedRank.tier).color ? "#000" : "#e4e4e7" }}
+            >
+              {rankMeta(selectedRank.tier).label}
+            </span>
+          </div>
+          {selectedRank.bestLift ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">
+              Best logged: {selectedRank.bestLift.name} — {selectedRank.bestLift.weight_lb}lb × {selectedRank.bestLift.reps}
+            </p>
+          ) : selectedRank.totalSetsLogged > 0 ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
+          ) : (
+            <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
+          )}
+        </div>
+      )}
+
+      {!muscleRanks && (
+        <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
+      )}
+
+      <div className="mt-8 grid grid-cols-3 gap-2.5">
         {CATEGORIES.map((c) => (
           <button
             key={c.key}

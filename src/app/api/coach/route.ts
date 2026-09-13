@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
-import { SPLITS, currentDay } from "@/lib/trainingSplits";
+import { SPLITS, currentDay, MUSCLE_GROUPS, MUSCLE_LABELS } from "@/lib/trainingSplits";
+import { computeAllMuscleRanks, type LiftForRank } from "@/lib/muscleRank";
+import { rankMeta } from "@/lib/rank";
 import type { Goal, Measurement, TrainingPlan, Lift } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -50,6 +52,21 @@ function liftsSummary(lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" 
   return `Recent logged lifts (most recent first per exercise):\n${lines.join("\n")}`;
 }
 
+function muscleRankSummary(lifts: LiftForRank[], bodyweightLb: number | null): string {
+  const ranks = computeAllMuscleRanks(MUSCLE_GROUPS, lifts, bodyweightLb);
+  const trained = ranks.filter((r) => r.tier !== "newbie" || r.totalSetsLogged > 0);
+  if (trained.length === 0) {
+    return "They haven't logged enough sets yet for the per-muscle rank map on the Fitness tab to show anything beyond Newbie.";
+  }
+  const lines = ranks
+    .map((r) => `${MUSCLE_LABELS[r.muscle]}: ${rankMeta(r.tier).label}${r.bestLift ? ` (best ${r.bestLift.name} ${r.bestLift.weight_lb}lb x ${r.bestLift.reps})` : ""}`)
+    .join(", ");
+  const sorted = [...ranks].sort((a, b) => a.score - b.score);
+  const weakest = sorted.slice(0, 2).map((r) => MUSCLE_LABELS[r.muscle]);
+  const strongest = sorted.slice(-2).reverse().map((r) => MUSCLE_LABELS[r.muscle]);
+  return `Per-muscle rank map (from the Fitness tab, bodyweight-relative — same tier ladder as the account rank): ${lines}. Their currently weakest-ranked muscles are ${weakest.join(" and ")}; strongest are ${strongest.join(" and ")}. When they ask what to work on, or what's lagging, use this real data instead of guessing — and feel free to recommend specific exercises from their exercise catalog that target a weak muscle.`;
+}
+
 function systemPrompt(
   goal: Goal | null,
   measurements: Pick<Measurement, "logged_at" | "weight_lb">[],
@@ -72,6 +89,8 @@ ${trainingSummary(plan)}
 
 ${liftsSummary(lifts)}
 
+${muscleRankSummary(lifts, plan?.ideal_weight_lb ?? measurements.filter((m) => m.weight_lb != null).slice(-1)[0]?.weight_lb ?? null)}
+
 When the user asks about their progress, reference this actual logged data (trend direction, how it compares to their goal phase, their real lift numbers and split) rather than speaking generally. If they haven't logged anything yet, encourage them to log a weight entry in the Progress tab or a set in the Fitness tab so you can track it together.
 
 ## How you coach lifting (this is the part people notice most, so follow it closely)
@@ -85,7 +104,7 @@ You are a science-based hypertrophy and strength coach in the same tradition as 
 
 Beyond rep ranges: emphasize a full stretch and controlled eccentric (tension at length matters at least as much as total volume), progressive overload week to week (more weight, more reps, or better form/control at the same load — not just showing up), and proximity to failure as the real driver of hypertrophy rather than an arbitrary total set count. When someone reports a plateau, look for whether they're actually approaching failure, whether they're progressively overloading, and whether exercise selection is hitting the muscle's strength curve well — not just telling them to "add a set." Feel free to reference how their own logged lifts (above) are trending when giving this kind of feedback.
 
-Your job is strictly limited to helping this user with: nutrition and diet questions, food choices and macros, their calorie/protein/goal targets and progress, workouts and training, recovery, general fitness/health habits, and how to use this app's features (scanning food, logging, recipes, progress tracking, streaks, the Train split and Fitness lift log).
+Your job is strictly limited to helping this user with: nutrition and diet questions, food choices and macros, their calorie/protein/goal targets and progress, workouts and training, recovery, general fitness/health habits, and how to use this app's features (scanning food, logging, recipes, progress tracking, streaks, the Train split, the Fitness lift log, and the per-muscle rank map).
 
 If the user asks about anything outside that scope — general knowledge, current events, coding, unrelated personal advice, or any other off-topic request — politely decline in 1 sentence and steer the conversation back to fitness/nutrition. Do not answer off-topic questions even if asked persistently or if the user claims a special exception. You are not a general-purpose assistant in this context.
 
