@@ -177,3 +177,65 @@ export function computeRank(input: ComputeRankInput): RankTier {
   }
   return best;
 }
+
+// XP per "level" shown on the Fitness page's rank card — a lighter-weight,
+// purely cosmetic counter layered on top of the tier system (levels climb
+// continuously with XP; tiers still gate on the age/strength/loss rules
+// above). 250 XP/level is arbitrary but keeps early levels from feeling
+// instant while still ticking up noticeably as the streak XP grows.
+const XP_PER_LEVEL = 250;
+
+export function xpLevel(xp: number): number {
+  return Math.floor(Math.max(0, xp) / XP_PER_LEVEL) + 1;
+}
+
+export interface RankProgress {
+  tier: RankTier;
+  nextTier: RankTier | null;
+  /** 0-1 toward nextTier; 1 (with nextTier null) once at the top tier. */
+  progress: number;
+  limitingFactor: "time" | "xp" | "strength" | null;
+}
+
+/**
+ * Progress toward the NEXT tier above whatever computeRank already settled
+ * on, for the rank card's progress bar. Mirrors computeRank's gates: the
+ * time/XP gate must clear AND at least one of strength/weight-loss must —
+ * so progress is the minimum of the time gate, the XP gate, and the BETTER
+ * of the two change paths (since only one of them needs to clear).
+ */
+export function computeRankProgress(input: ComputeRankInput): RankProgress {
+  const tier = computeRank(input);
+  const idx = RANK_TIERS.findIndex((t) => t.tier === tier);
+  const nextIdx = idx + 1;
+  if (nextIdx >= RANK_TIERS.length) {
+    return { tier, nextTier: null, progress: 1, limitingFactor: null };
+  }
+  const next = RANK_TIERS[nextIdx];
+  const accountAgeDays = daysBetween(input.accountCreatedAt, new Date().toISOString());
+  const sex = (input.sex ?? "").trim().toLowerCase();
+  const strengthLb =
+    sex === "male" || sex === "man" || sex === "m"
+      ? input.benchMaxLb
+      : sex === "female" || sex === "woman" || sex === "f"
+        ? input.squatMaxLb
+        : Math.max(input.benchMaxLb, input.squatMaxLb);
+
+  const timeProgress = next.minAccountAgeDays === 0 ? 1 : Math.min(1, accountAgeDays / next.minAccountAgeDays);
+  const xpProgress = next.minXp === 0 ? 1 : Math.min(1, input.xp / next.minXp);
+  const strengthProgress = next.liftLb === 0 ? 1 : Math.min(1, strengthLb / next.liftLb);
+  const lossProgress = next.lossPct === 0 ? 1 : Math.min(1, input.weightLossPct / next.lossPct);
+  const changeProgress = Math.max(strengthProgress, lossProgress);
+
+  const progress = Math.min(timeProgress, xpProgress, changeProgress);
+  const limitingFactor: RankProgress["limitingFactor"] =
+    progress === changeProgress && changeProgress < 1
+      ? "strength"
+      : progress === xpProgress && xpProgress < 1
+        ? "xp"
+        : progress < 1
+          ? "time"
+          : null;
+
+  return { tier, nextTier: next.tier, progress, limitingFactor };
+}

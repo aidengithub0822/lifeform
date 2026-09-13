@@ -16,9 +16,24 @@ import {
 import type { TrainingPlan, Lift } from "@/lib/types";
 import XpSparkToast from "@/components/XpSparkToast";
 import MuscleMapOverlay from "@/components/MuscleMapOverlay";
-import { rankMeta, type RankTier } from "@/lib/rank";
+import RankCalculator from "@/components/RankCalculator";
+import ExerciseStatsPanel from "@/components/ExerciseStatsPanel";
+import { rankMeta, RANK_TIERS, type RankTier } from "@/lib/rank";
 
 type Sex = "male" | "female";
+
+interface RankSummary {
+  tier: RankTier;
+  label: string;
+  color: string | null;
+  badge: string;
+  xp: number;
+  level: number;
+  progress: number;
+  nextTier: RankTier | null;
+  nextTierLabel: string | null;
+  limitingFactor: "time" | "xp" | "strength" | null;
+}
 
 interface MuscleRankApiResult {
   muscle: MuscleGroup;
@@ -149,6 +164,10 @@ export default function FitnessPage() {
   const [showPicker, setShowPicker] = useState(false);
   const [muscleRanks, setMuscleRanks] = useState<MuscleRankApiResult[] | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
+  const [rankSummary, setRankSummary] = useState<RankSummary | null>(null);
+  const [showStats, setShowStats] = useState(false);
+  const [showCalculator, setShowCalculator] = useState(false);
+  const [bodyweightLb, setBodyweightLb] = useState<number | null>(null);
 
   useEffect(() => {
 
@@ -161,6 +180,7 @@ export default function FitnessPage() {
       setPlanLoading(false);
     })();
     refreshMuscleRanks();
+    refreshRankSummary();
   }, []);
 
   async function refreshMuscleRanks() {
@@ -168,7 +188,13 @@ export default function FitnessPage() {
     if (res.ok) {
       const body = await res.json();
       setMuscleRanks(body.ranks);
+      if (typeof body.bodyweightLb === "number") setBodyweightLb(body.bodyweightLb);
     }
+  }
+
+  async function refreshRankSummary() {
+    const res = await fetch("/api/rank");
+    if (res.ok) setRankSummary(await res.json());
   }
 
   const split = plan ? SPLITS[plan.split_type] : null;
@@ -184,6 +210,7 @@ export default function FitnessPage() {
     // The set that was just logged may have moved this muscle's rank —
     // refresh so the map reflects it without a full page reload.
     refreshMuscleRanks();
+    refreshRankSummary();
   }
 
   async function logWorkout() {
@@ -214,8 +241,155 @@ export default function FitnessPage() {
       <h1 className="mt-2 text-2xl font-bold">Fitness</h1>
       <p className="mt-1 text-sm text-zinc-400">Pick a muscle group to see what to train today.</p>
 
+      {rankSummary && (
+        <div
+          className="mt-5 rounded-2xl border p-4"
+          style={{
+            borderColor: `${rankSummary.color ?? "#3f3f46"}55`,
+            background: `linear-gradient(135deg, ${rankSummary.color ?? "#3f3f46"}22, #111113)`,
+            boxShadow: `0 0 24px -8px ${rankSummary.color ?? "#3f3f46"}66`,
+          }}
+        >
+          <div className="flex items-center gap-3.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={rankSummary.badge} alt="" className="h-14 w-14 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-[#a1a1aa]">Overall Rank</p>
+              <p className="truncate text-xl font-extrabold uppercase tracking-tight" style={{ color: rankSummary.color ?? "#f4f4f5" }}>
+                {rankSummary.label}
+              </p>
+              <div className="mt-1 flex items-center gap-3 text-[11px] text-[#a1a1aa]">
+                <span>
+                  <span className="font-semibold text-[#e4e4e7]">Level</span> {rankSummary.level}
+                </span>
+                {rankSummary.nextTier && (
+                  <span>
+                    <span className="font-semibold text-[#e4e4e7]">Rank progress</span> {Math.round(rankSummary.progress * 100)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+          {rankSummary.nextTier ? (
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${Math.max(4, rankSummary.progress * 100)}%`, backgroundColor: rankSummary.color ?? "#71717a" }}
+              />
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-3 flex gap-2.5">
+        <button
+          onClick={() => setShowStats(true)}
+          className="flex flex-1 items-center justify-center gap-2 rounded-full border border-[#1f1f23] bg-[#111113] py-2.5 text-xs font-semibold text-[#e4e4e7]"
+        >
+          📊 Exercise Stats
+        </button>
+        <button
+          onClick={() => setShowCalculator(true)}
+          className="flex flex-1 items-center justify-center gap-2 rounded-full border border-[#1f1f23] bg-[#111113] py-2.5 text-xs font-semibold text-[#e4e4e7]"
+        >
+          🧮 Rank Calculator
+        </button>
+      </div>
+
+      <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
+        <button
+          onClick={() => setSex("male")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Man
+        </button>
+        <button
+          onClick={() => setSex("female")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Woman
+        </button>
+      </div>
+
+      <p className="mt-4 text-xs text-[#71717a]">
+        Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
+      </p>
+      <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
+        {RANK_TIERS.filter((t) => t.tier !== "newbie").map((t) => (
+          <div key={t.tier} className="flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color ?? "#3f3f46" }} />
+            <span className="text-[10px] font-medium text-[#71717a]">{t.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {selectedRank && (
+        <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
+            <div className="flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={rankMeta(selectedRank.tier).badge} alt="" className="h-7 w-7" />
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: rankMeta(selectedRank.tier).color ?? "#a1a1aa" }}>
+                {rankMeta(selectedRank.tier).label}
+              </span>
+            </div>
+          </div>
+          {selectedRank.bestLift ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">
+              Best logged: {selectedRank.bestLift.name} — {selectedRank.bestLift.weight_lb}lb × {selectedRank.bestLift.reps}
+            </p>
+          ) : selectedRank.totalSetsLogged > 0 ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
+          ) : (
+            <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
+          )}
+
+          {selectedRank.nextTier ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-[#71717a]">
+                  Progress to {rankMeta(selectedRank.nextTier).label}
+                </span>
+                <span className="text-[10px] font-semibold text-[#a1a1aa]">{Math.round(selectedRank.progress * 100)}%</span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(4, selectedRank.progress * 100)}%`,
+                    backgroundColor: rankMeta(selectedRank.nextTier).color ?? "#71717a",
+                  }}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-[#71717a]">
+                {selectedRank.limitingFactor === "days" && selectedRank.daysNeededForNextTier
+                  ? `${selectedRank.daysNeededForNextTier} more qualifying training day${selectedRank.daysNeededForNextTier === 1 ? "" : "s"} at this strength level to rank up.`
+                  : selectedRank.limitingFactor === "score" && selectedRank.scoreNeededForNextTier
+                    ? "Lift heavier relative to your bodyweight to open up qualifying days for this tier."
+                    : "Keep training consistently to rank up."}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
+          )}
+        </div>
+      )}
+
+      {!muscleRanks && (
+        <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
+      )}
+
       {!planLoading && plan && split && day && (
-        <div className="mt-5">
+        <div className="mt-8">
           <div className="flex items-baseline justify-between">
             <span className="text-sm font-semibold text-[#e4e4e7]">Today&apos;s workout</span>
             <span className="text-xs text-[#52525b]">
@@ -317,92 +491,11 @@ export default function FitnessPage() {
       {!planLoading && !plan && (
         <Link
           href="/train/setup"
-          className="mt-5 flex items-center justify-between rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3.5"
+          className="mt-8 flex items-center justify-between rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3.5"
         >
           <span className="text-sm font-medium text-[#e4e4e7]">Set up your training split to see today&apos;s workout</span>
           <span className="text-[#71717a]">›</span>
         </Link>
-      )}
-
-      <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
-        <button
-          onClick={() => setSex("male")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Man
-        </button>
-        <button
-          onClick={() => setSex("female")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Woman
-        </button>
-      </div>
-
-      <p className="mt-4 text-xs text-[#71717a]">
-        Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
-      </p>
-      <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />
-
-      {selectedRank && (
-        <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
-            <div className="flex items-center gap-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={rankMeta(selectedRank.tier).badge} alt="" className="h-7 w-7" />
-              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: rankMeta(selectedRank.tier).color ?? "#a1a1aa" }}>
-                {rankMeta(selectedRank.tier).label}
-              </span>
-            </div>
-          </div>
-          {selectedRank.bestLift ? (
-            <p className="mt-1.5 text-xs text-[#a1a1aa]">
-              Best logged: {selectedRank.bestLift.name} — {selectedRank.bestLift.weight_lb}lb × {selectedRank.bestLift.reps}
-            </p>
-          ) : selectedRank.totalSetsLogged > 0 ? (
-            <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
-          ) : (
-            <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
-          )}
-
-          {selectedRank.nextTier ? (
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[#71717a]">
-                  Progress to {rankMeta(selectedRank.nextTier).label}
-                </span>
-                <span className="text-[10px] font-semibold text-[#a1a1aa]">{Math.round(selectedRank.progress * 100)}%</span>
-              </div>
-              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.max(4, selectedRank.progress * 100)}%`,
-                    backgroundColor: rankMeta(selectedRank.nextTier).color ?? "#71717a",
-                  }}
-                />
-              </div>
-              <p className="mt-1.5 text-[11px] text-[#71717a]">
-                {selectedRank.limitingFactor === "days" && selectedRank.daysNeededForNextTier
-                  ? `${selectedRank.daysNeededForNextTier} more qualifying training day${selectedRank.daysNeededForNextTier === 1 ? "" : "s"} at this strength level to rank up.`
-                  : selectedRank.limitingFactor === "score" && selectedRank.scoreNeededForNextTier
-                    ? "Lift heavier relative to your bodyweight to open up qualifying days for this tier."
-                    : "Keep training consistently to rank up."}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
-          )}
-        </div>
-      )}
-
-      {!muscleRanks && (
-        <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
       )}
 
       <div className="mt-8 grid grid-cols-3 gap-2.5">
@@ -448,6 +541,14 @@ export default function FitnessPage() {
           </button>
         </div>
       )}
+
+      {showStats && muscleRanks && (
+        <ExerciseStatsPanel
+          rows={muscleRanks.map((r) => ({ muscle: r.muscle, tier: r.tier, bestLift: r.bestLift, totalSetsLogged: r.totalSetsLogged }))}
+          onClose={() => setShowStats(false)}
+        />
+      )}
+      {showCalculator && <RankCalculator defaultBodyweightLb={bodyweightLb} onClose={() => setShowCalculator(false)} />}
     </div>
   );
 }

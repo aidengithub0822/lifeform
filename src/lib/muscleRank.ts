@@ -35,7 +35,7 @@
 import { ALL_EXERCISES, type MuscleGroup, type ExerciseKind } from "./trainingSplits";
 import { RANK_TIERS, type RankTier } from "./rank";
 
-const KIND_BASELINE: Record<ExerciseKind, number> = {
+export const KIND_BASELINE: Record<ExerciseKind, number> = {
   heavy_compound: 1.0,
   moderate_compound: 0.8,
   isolation: 0.35,
@@ -47,7 +47,7 @@ const KIND_BASELINE: Record<ExerciseKind, number> = {
 // a set must reach to count as a "qualifying day" for this tier.
 // minQualifyingDays: distinct days that met minScore, required to hold the
 // tier — this is the part that forces real elapsed time and consistency.
-const TIER_REQUIREMENTS: { minScore: number; minQualifyingDays: number }[] = [
+export const TIER_REQUIREMENTS: { minScore: number; minQualifyingDays: number }[] = [
   { minScore: 0, minQualifyingDays: 0 }, // newbie
   { minScore: 0.35, minQualifyingDays: 1 }, // bronze — one genuinely strong day is enough
   { minScore: 0.55, minQualifyingDays: 3 }, // silver
@@ -219,4 +219,32 @@ export function computeAllMuscleRanks(
   bodyweightLb: number | null
 ): MuscleRankResult[] {
   return muscles.map((m) => computeMuscleRank(m, lifts, bodyweightLb));
+}
+
+// ---- Rank Calculator helpers -----------------------------------------
+//
+// Pure, client-safe math backing the "Rank Calculator" tool: given a single
+// hypothetical set (exercise kind, weight, bodyweight), what strength tier
+// does that set's score reach? This only ever evaluates the SCORE gate —
+// the calculator is upfront that hitting a score once starts the clock, but
+// the tier itself still needs the qualifying-days history computed above.
+
+export function scoreForLift(kind: ExerciseKind, weightLb: number, bodyweightLb: number): number {
+  if (bodyweightLb <= 0) return 0;
+  return weightLb / bodyweightLb / KIND_BASELINE[kind];
+}
+
+/** Highest tier index (into RANK_TIERS) whose minScore this score clears. */
+export function tierIndexForScore(score: number): number {
+  let idx = 0;
+  for (let i = 1; i < TIER_REQUIREMENTS.length; i++) {
+    if (score >= TIER_REQUIREMENTS[i].minScore) idx = i;
+  }
+  return idx;
+}
+
+/** Weight (lb) needed at this bodyweight/kind to reach a given tier's score bar. */
+export function weightForTierIndex(index: number, kind: ExerciseKind, bodyweightLb: number): number {
+  const req = TIER_REQUIREMENTS[Math.max(0, Math.min(index, TIER_REQUIREMENTS.length - 1))];
+  return req.minScore * bodyweightLb * KIND_BASELINE[kind];
 }
