@@ -177,6 +177,20 @@ create table if not exists public.journal_entries (
 );
 create index if not exists journal_entries_user_time_idx on public.journal_entries (user_id, created_at desc);
 
+-- Who follows whom. Not a "friendship" (one-directional, no approval needed) —
+-- shown as a Follow/Unfollow button on someone's profile plus follower/
+-- following counts.
+create table if not exists public.follows (
+  id uuid primary key default gen_random_uuid(),
+  follower_id uuid not null references auth.users(id) on delete cascade,
+  following_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (follower_id, following_id),
+  check (follower_id <> following_id)
+);
+create index if not exists follows_follower_idx on public.follows (follower_id);
+create index if not exists follows_following_idx on public.follows (following_id);
+
 -- A single shared, AI-moderated community discussion feed — separate from
 -- the per-user "Comments" feedback wall. Every post is checked by the AI
 -- moderator BEFORE it's inserted, so nothing that fails moderation is ever
@@ -241,6 +255,7 @@ alter table public.messages enable row level security;
 alter table public.community_comments enable row level security;
 alter table public.photo_likes enable row level security;
 alter table public.photo_comments enable row level security;
+alter table public.follows enable row level security;
 
 do $$
 declare
@@ -344,6 +359,21 @@ create policy "photo_comments_insert_own" on public.photo_comments
 drop policy if exists "photo_comments_delete_own" on public.photo_comments;
 create policy "photo_comments_delete_own" on public.photo_comments
   for delete using (auth.uid() = user_id);
+
+-- follows: anyone signed in can see who follows whom (needed for follower/
+-- following counts on a profile), but you can only follow/unfollow as
+-- yourself.
+drop policy if exists "follows_select_all" on public.follows;
+create policy "follows_select_all" on public.follows
+  for select using (auth.uid() is not null);
+
+drop policy if exists "follows_insert_own" on public.follows;
+create policy "follows_insert_own" on public.follows
+  for insert with check (auth.uid() = follower_id);
+
+drop policy if exists "follows_delete_own" on public.follows;
+create policy "follows_delete_own" on public.follows
+  for delete using (auth.uid() = follower_id);
 
 -- profile_photos: anyone signed in can view anyone's gallery (profile pages
 -- are public within the app), but you can only post/delete your own images.

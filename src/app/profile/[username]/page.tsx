@@ -30,6 +30,12 @@ export default function ProfilePage() {
   const [galleryError, setGalleryError] = useState<string | null>(null);
   const [lightboxPhoto, setLightboxPhoto] = useState<ProfilePhoto | null>(null);
 
+  const [followerCount, setFollowerCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
   async function load() {
     setLoading(true);
     setNotFound(false);
@@ -48,13 +54,51 @@ export default function ProfilePage() {
     }
     setProfile(p);
     setBioDraft(p.bio ?? "");
-    const { data: gallery } = await supabase
-      .from("profile_photos")
-      .select("*")
-      .eq("user_id", p.user_id)
-      .order("created_at", { ascending: false })
-      .returns<ProfilePhoto[]>();
+    const [{ data: gallery }, followerRes, followingRes, followingMeRes] = await Promise.all([
+      supabase
+        .from("profile_photos")
+        .select("*")
+        .eq("user_id", p.user_id)
+        .order("created_at", { ascending: false })
+        .returns<ProfilePhoto[]>(),
+      supabase
+        .from("follows")
+        .select("id", { count: "exact", head: true })
+        .eq("following_id", p.user_id),
+      supabase
+        .from("follows")
+        .select("id", { count: "exact", head: true })
+        .eq("follower_id", p.user_id),
+      me.user
+        ? supabase
+            .from("follows")
+            .select("id")
+            .eq("follower_id", me.user.id)
+            .eq("following_id", p.user_id)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
     setPhotos(gallery ?? []);
+    setFollowerCount(followerRes.count ?? 0);
+    setFollowingCount(followingRes.count ?? 0);
+    let following = !!followingMeRes.data;
+
+    // Developer mode: skip the manual follow step entirely so testing other
+    // accounts' profiles (messaging, gated features, etc.) doesn't require
+    // clicking Follow every time — auto-follow on visit, silently.
+    const adminRes = await fetch("/api/admin/status").then((r) => r.json()).catch(() => ({ isAdmin: false }));
+    const adminNow = !!adminRes.isAdmin;
+    setIsAdmin(adminNow);
+    if (me.user && me.user.id !== p.user_id && !following && adminNow) {
+      const { error: autoFollowError } = await supabase
+        .from("follows")
+        .insert({ follower_id: me.user.id, following_id: p.user_id });
+      if (!autoFollowError) {
+        following = true;
+        setFollowerCount((c) => c + 1);
+      }
+    }
+    setIsFollowing(following);
     setLoading(false);
   }
 
@@ -145,6 +189,31 @@ export default function ProfilePage() {
     await load();
   }
 
+  async function toggleFollow() {
+    if (!profile || !myUserId || followBusy) return;
+    setFollowBusy(true);
+    // Optimistic update so the button feels instant.
+    const wasFollowing = isFollowing;
+    setIsFollowing(!wasFollowing);
+    setFollowerCount((c) => c + (wasFollowing ? -1 : 1));
+    try {
+      if (wasFollowing) {
+        await supabase
+          .from("follows")
+          .delete()
+          .eq("follower_id", myUserId)
+          .eq("following_id", profile.user_id);
+      } else {
+        await supabase
+          .from("follows")
+          .insert({ follower_id: myUserId, following_id: profile.user_id });
+      }
+    } finally {
+      setFollowBusy(false);
+      await load();
+    }
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-md px-5 py-8">
@@ -186,6 +255,15 @@ export default function ProfilePage() {
         </div>
         <div className="min-w-0">
           <h1 className="truncate text-xl font-bold">{profile.username}</h1>
+          <div className="mt-0.5 flex gap-3 text-xs text-zinc-400">
+            <span>
+              <span className="font-semibold text-zinc-200">{followerCount}</span> follower
+              {followerCount === 1 ? "" : "s"}
+            </span>
+            <span>
+              <span className="font-semibold text-zinc-200">{followingCount}</span> following
+            </span>
+          </div>
           {isOwn && (
             <label className="mt-1 inline-block text-xs font-medium text-emerald-400 active:opacity-70">
               {uploadingAvatar ? "Uploading..." : "Change photo"}
@@ -226,12 +304,32 @@ export default function ProfilePage() {
       </div>
 
       {!isOwn && (
-        <button
-          onClick={() => router.push(`/messages/${profile.user_id}`)}
-          className="mt-4 w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black"
-        >
-          Message
-        </button>
+        <div className="mt-4">
+          {isAdmin && (
+            <p className="mb-1 text-[11px] font-medium text-zinc-500">
+              Developer mode: auto-followed for easier testing access.
+            </p>
+          )}
+          <div className="flex gap-2">
+          <button
+            onClick={toggleFollow}
+            disabled={followBusy || !myUserId}
+            className={`flex-1 rounded-xl py-2.5 text-sm font-semibold disabled:opacity-60 ${
+              isFollowing
+                ? "border border-zinc-700 bg-zinc-900 text-zinc-200"
+                : "bg-emerald-500 text-black"
+            }`}
+          >
+            {isFollowing ? "Following" : "Follow"}
+          </button>
+          <button
+            onClick={() => router.push(`/messages/${profile.user_id}`)}
+            className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 py-2.5 text-sm font-semibold text-zinc-200"
+          >
+            Message
+          </button>
+          </div>
+        </div>
       )}
 
       <div className="mt-6">
