@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import UserLink from "@/components/UserLink";
 import PushOptIn from "@/components/PushOptIn";
+import FindPeople from "@/components/FindPeople";
 import type { Feedback, Goal } from "@/lib/types";
 
 type Tab = "settings" | "info" | "feedback";
@@ -290,6 +291,8 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
                       </div>
                     )}
                   </div>
+
+                  <FindPeople onNavigate={() => setOpen(false)} />
 
                   <PushOptIn />
 

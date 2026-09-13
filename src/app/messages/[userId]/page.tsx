@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { compressImageForUpload } from "@/lib/imageUpload";
+import UserName from "@/components/UserName";
 import type { Message, Profile } from "@/lib/types";
 
 export default function MessageThreadPage() {
@@ -18,7 +20,11 @@ export default function MessageThreadPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function loadThread(uid: string) {
     const { data } = await supabase
@@ -80,37 +86,72 @@ export default function MessageThreadPage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  function pickPhoto(file: File) {
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function clearPhoto() {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function send() {
     const body = draft.trim();
-    if (!body || !myUserId) return;
+    if ((!body && !photoFile) || !myUserId) return;
     setSending(true);
+    setSendError(null);
     setDraft("");
+    const pendingPhoto = photoFile;
+    const pendingPreview = photoPreview;
+    clearPhoto();
+
     const optimistic: Message = {
       id: `pending-${Date.now()}`,
       sender_id: myUserId,
       recipient_id: otherId,
-      body,
+      body: body || null,
+      photo_url: pendingPreview,
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, optimistic]);
-    const { error } = await supabase.from("messages").insert({ sender_id: myUserId, recipient_id: otherId, body });
-    if (error) {
-      // Roll back the optimistic message and let the user retry.
-      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
-      setDraft(body);
-    } else {
+
+    try {
+      let photoUrl: string | null = null;
+      if (pendingPhoto) {
+        const blob = await compressImageForUpload(pendingPhoto, 1600, 0.85);
+        const path = `${myUserId}/messages/${Date.now()}.jpg`;
+        const { error: uploadError } = await supabase.storage.from("profile-media").upload(path, blob, {
+          contentType: "image/jpeg",
+        });
+        if (uploadError) throw new Error(uploadError.message);
+        photoUrl = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      }
+
+      const { error } = await supabase
+        .from("messages")
+        .insert({ sender_id: myUserId, recipient_id: otherId, body: body || null, photo_url: photoUrl });
+      if (error) throw new Error(error.message);
+
       fetch("/api/push/notify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toUserId: otherId,
           title: myUsername ? `${myUsername} sent you a message` : "New message",
-          body,
+          body: body || "📷 Photo",
           url: `/messages/${myUserId}`,
         }),
       }).catch(() => {}); // best-effort — a failed push never blocks sending the message
+    } catch (err) {
+      // Roll back the optimistic message and let the user retry.
+      setMessages((prev) => prev.filter((m) => m.id !== optimistic.id));
+      setDraft(body);
+      setSendError(err instanceof Error ? err.message : "Couldn't send that");
+    } finally {
+      setSending(false);
     }
-    setSending(false);
   }
 
   return (
@@ -121,7 +162,12 @@ export default function MessageThreadPage() {
         </Link>
         {otherProfile && (
           <Link href={`/profile/${otherProfile.username}`} className="ml-auto flex items-center gap-2">
-            <span className="text-sm font-semibold text-zinc-100">{otherProfile.username}</span>
+            <UserName
+              username={otherProfile.username}
+              color={otherProfile.name_color}
+              verified={otherProfile.verified}
+              className="text-sm font-semibold text-zinc-100"
+            />
             <div className="h-8 w-8 overflow-hidden rounded-full border border-zinc-800 bg-zinc-900">
               {otherProfile.avatar_url ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -147,12 +193,20 @@ export default function MessageThreadPage() {
           const mine = m.sender_id === myUserId;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div
-                className={`max-w-[75%] whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
-                  mine ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-100"
-                }`}
-              >
-                {m.body}
+              <div className="max-w-[75%] space-y-1">
+                {m.photo_url && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.photo_url} alt="" className="max-h-72 rounded-2xl object-cover" />
+                )}
+                {m.body && (
+                  <div
+                    className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
+                      mine ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-100"
+                    }`}
+                  >
+                    {m.body}
+                  </div>
+                )}
               </div>
             </div>
           );
@@ -160,26 +214,51 @@ export default function MessageThreadPage() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="flex items-center gap-2 border-t border-zinc-800 pt-3" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              send();
-            }
-          }}
-          placeholder="Message..."
-          className="flex-1 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
-        />
-        <button
-          onClick={send}
-          disabled={sending || !draft.trim()}
-          className="rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
-        >
-          Send
-        </button>
+      <div className="border-t border-zinc-800 pt-3" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
+        {sendError && <p className="mb-1.5 text-xs text-red-400">{sendError}</p>}
+        {photoPreview && (
+          <div className="relative mb-2 w-fit">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photoPreview} alt="" className="h-16 w-16 rounded-xl object-cover" />
+            <button
+              onClick={clearPhoto}
+              className="absolute -right-1.5 -top-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[10px] font-bold text-white"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-2">
+          <label className="flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-base active:opacity-70">
+            📷
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => e.target.files?.[0] && pickPhoto(e.target.files[0])}
+            />
+          </label>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                send();
+              }
+            }}
+            placeholder="Message..."
+            className="flex-1 rounded-full border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm outline-none focus:border-emerald-500"
+          />
+          <button
+            onClick={send}
+            disabled={sending || (!draft.trim() && !photoFile)}
+            className="rounded-full bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
+          >
+            Send
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -8,6 +8,9 @@ import { compressImageForUpload } from "@/lib/imageUpload";
 import PhotoLightbox from "@/components/PhotoLightbox";
 import PullToRefresh from "@/components/PullToRefresh";
 import Avatar from "@/components/Avatar";
+import UserName from "@/components/UserName";
+import FollowListOverlay from "@/components/FollowListOverlay";
+import { NAME_COLOR_PRESETS, RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import type { Profile, ProfilePhoto } from "@/lib/types";
 
 export default function ProfilePage() {
@@ -30,7 +33,9 @@ export default function ProfilePage() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [galleryError, setGalleryError] = useState<string | null>(null);
-  const [lightboxPhoto, setLightboxPhoto] = useState<ProfilePhoto | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [followListMode, setFollowListMode] = useState<"followers" | "following" | null>(null);
+  const [devColorBusy, setDevColorBusy] = useState(false);
 
   const [followerCount, setFollowerCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -232,6 +237,36 @@ export default function ProfilePage() {
     }
   }
 
+  async function setDevColor(color: string | null) {
+    if (!profile || devColorBusy) return;
+    setDevColorBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${profile.user_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name_color: color }),
+      });
+      if (res.ok) await load();
+    } finally {
+      setDevColorBusy(false);
+    }
+  }
+
+  async function toggleVerified() {
+    if (!profile || devColorBusy) return;
+    setDevColorBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${profile.user_id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ verified: !profile.verified }),
+      });
+      if (res.ok) await load();
+    } finally {
+      setDevColorBusy(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-md px-5 py-8">
@@ -286,18 +321,20 @@ export default function ProfilePage() {
             <p className="text-lg font-bold leading-tight">{photos.length}</p>
             <p className="text-[11px] text-zinc-400">Posts</p>
           </div>
-          <div>
+          <button onClick={() => setFollowListMode("followers")} className="active:opacity-70">
             <p className="text-lg font-bold leading-tight">{followerCount}</p>
             <p className="text-[11px] text-zinc-400">Followers</p>
-          </div>
-          <div>
+          </button>
+          <button onClick={() => setFollowListMode("following")} className="active:opacity-70">
             <p className="text-lg font-bold leading-tight">{followingCount}</p>
             <p className="text-[11px] text-zinc-400">Following</p>
-          </div>
+          </button>
         </div>
       </div>
 
-      <h1 className="mt-3 truncate text-base font-bold">{profile.username}</h1>
+      <h1 className="mt-3">
+        <UserName username={profile.username} color={profile.name_color} verified={profile.verified} className="text-base font-bold" />
+      </h1>
 
       <div className="mt-1.5">
         {isOwn ? (
@@ -354,6 +391,52 @@ export default function ProfilePage() {
         </div>
       )}
 
+      {isAdmin && (
+        <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
+          <p className="text-xs font-semibold text-zinc-300">Developer tools</p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              onClick={toggleVerified}
+              disabled={devColorBusy}
+              className={`rounded-full px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${
+                profile.verified ? "bg-blue-500 text-white" : "border border-zinc-700 text-zinc-300"
+              }`}
+            >
+              {profile.verified ? "✓ Verified" : "Verify"}
+            </button>
+            <button
+              onClick={() => setDevColor(null)}
+              disabled={devColorBusy || !profile.name_color}
+              className="rounded-full border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-400 disabled:opacity-40"
+            >
+              Reset color
+            </button>
+          </div>
+          <div className="mt-2.5 flex flex-wrap gap-2">
+            {NAME_COLOR_PRESETS.map((c) => (
+              <button
+                key={c}
+                onClick={() => setDevColor(c)}
+                disabled={devColorBusy}
+                className="h-7 w-7 rounded-full border-2"
+                style={{ backgroundColor: c, borderColor: profile.name_color === c ? "#fff" : "transparent" }}
+                aria-label={`Set name color ${c}`}
+              />
+            ))}
+            {isOwn && (
+              <button
+                onClick={() => setDevColor(RESERVED_DEV_COLOR)}
+                disabled={devColorBusy}
+                className="lf-dev-name flex h-7 items-center rounded-full border-2 px-2 text-[10px] font-bold"
+                style={{ borderColor: profile.name_color === RESERVED_DEV_COLOR ? "#fff" : "transparent" }}
+              >
+                DEV
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {isOwn && (
         <div className="mt-4">
           <label className="block w-full cursor-pointer rounded-xl border border-zinc-700 bg-zinc-900 py-2 text-center text-sm font-semibold text-zinc-200 active:scale-[0.98]">
@@ -377,13 +460,13 @@ export default function ProfilePage() {
           </p>
         ) : (
           <div className="grid grid-cols-3 gap-0.5">
-            {photos.map((p) => (
+            {photos.map((p, i) => (
               <div key={p.id} className="group relative">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={p.photo_url}
                   alt={`${profile.username}'s photo`}
-                  onClick={() => setLightboxPhoto(p)}
+                  onClick={() => setLightboxIndex(i)}
                   className="aspect-square w-full object-cover active:opacity-80"
                 />
                 {isOwn && (
@@ -400,7 +483,12 @@ export default function ProfilePage() {
         )}
       </div>
     </div>
-    {lightboxPhoto && <PhotoLightbox photo={lightboxPhoto} onClose={() => setLightboxPhoto(null)} />}
+    {lightboxIndex !== null && (
+      <PhotoLightbox photos={photos} initialIndex={lightboxIndex} onClose={() => setLightboxIndex(null)} />
+    )}
+    {followListMode && (
+      <FollowListOverlay userId={profile.user_id} mode={followListMode} onClose={() => setFollowListMode(null)} />
+    )}
     </PullToRefresh>
   );
 }

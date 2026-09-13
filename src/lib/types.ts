@@ -95,6 +95,8 @@ export interface Profile {
   username: string;
   bio: string | null;
   avatar_url: string | null;
+  name_color: string | null;
+  verified: boolean;
   updated_at: string;
 }
 
@@ -126,7 +128,8 @@ export interface Message {
   id: string;
   sender_id: string;
   recipient_id: string;
-  body: string;
+  body: string | null;
+  photo_url: string | null;
   created_at: string;
 }
 
@@ -142,6 +145,7 @@ export interface CommunityPost {
   user_id: string;
   author_username: string | null;
   message: string;
+  photo_url: string | null;
   created_at: string;
 }
 
@@ -151,7 +155,16 @@ export interface CommunityComment {
   user_id: string;
   author_username: string | null;
   body: string;
+  parent_id: string | null;
   created_at: string;
+}
+
+/** Slimmed-down profile info needed to render a colored/verified username
+ * anywhere one appears (community, messages, profile header). */
+export interface AuthorInfo {
+  avatar_url: string | null;
+  name_color: string | null;
+  verified: boolean;
 }
 
 export interface PhotoLike {

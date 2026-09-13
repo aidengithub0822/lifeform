@@ -7,7 +7,135 @@ import { createClient } from "@/lib/supabase/client";
 import AuthorLine from "@/components/AuthorLine";
 import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
-import type { CommunityComment, CommunityPost } from "@/lib/types";
+import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
+
+interface ThreadProps {
+  comment: CommunityComment;
+  depth: number;
+  allComments: CommunityComment[];
+  authors: Record<string, AuthorInfo>;
+  myUserId: string | null;
+  isAdmin: boolean;
+  openReplyFor: string | null;
+  setOpenReplyFor: (id: string | null) => void;
+  nestedDraft: string;
+  setNestedDraft: (v: string) => void;
+  nestedPosting: boolean;
+  nestedError: string | null;
+  submitNestedReply: (parentId: string) => void;
+  deleteOwnComment: (id: string) => void;
+  deleteAsAdminComment: (id: string) => void;
+}
+
+function CommentNode({
+  comment,
+  depth,
+  allComments,
+  authors,
+  myUserId,
+  isAdmin,
+  openReplyFor,
+  setOpenReplyFor,
+  nestedDraft,
+  setNestedDraft,
+  nestedPosting,
+  nestedError,
+  submitNestedReply,
+  deleteOwnComment,
+  deleteAsAdminComment,
+}: ThreadProps) {
+  const children = allComments.filter((c) => c.parent_id === comment.id);
+  const canDelete = isAdmin || comment.user_id === myUserId;
+  const a = authors[comment.user_id];
+  const indent = Math.min(depth, 3) * 14;
+
+  return (
+    <div style={{ marginLeft: indent }}>
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
+        <AuthorLine
+          username={comment.author_username}
+          avatarUrl={a?.avatar_url}
+          color={a?.name_color}
+          verified={a?.verified}
+          createdAt={comment.created_at}
+        />
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{comment.body}</p>
+        <div className="mt-1.5 flex items-center gap-1">
+          <button
+            onClick={() => setOpenReplyFor(openReplyFor === comment.id ? null : comment.id)}
+            className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+          >
+            Reply
+          </button>
+          {canDelete && (
+            <button
+              onClick={() =>
+                isAdmin && comment.user_id !== myUserId ? deleteAsAdminComment(comment.id) : deleteOwnComment(comment.id)
+              }
+              className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+            >
+              Delete
+            </button>
+          )}
+        </div>
+
+        {openReplyFor === comment.id && (
+          <div className="mt-2 space-y-1.5">
+            <textarea
+              value={nestedDraft}
+              onChange={(e) => setNestedDraft(e.target.value)}
+              placeholder="Write a reply..."
+              rows={2}
+              autoFocus
+              className="w-full resize-none rounded-lg border border-zinc-700 bg-zinc-950 px-2.5 py-1.5 text-sm outline-none focus:border-emerald-500"
+            />
+            <div className="flex items-center justify-end gap-2">
+              {nestedError && <p className="mr-auto text-xs text-red-400">{nestedError}</p>}
+              <button
+                onClick={() => setOpenReplyFor(null)}
+                className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-400"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => submitNestedReply(comment.id)}
+                disabled={nestedPosting || !nestedDraft.trim()}
+                className="rounded-full bg-emerald-500 px-3 py-1 text-xs font-semibold text-black disabled:opacity-60"
+              >
+                {nestedPosting ? "Posting..." : "Reply"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {children.length > 0 && (
+        <div className="mt-2 space-y-2 border-l border-zinc-800 pl-2.5">
+          {children.map((child) => (
+            <CommentNode
+              key={child.id}
+              comment={child}
+              depth={depth + 1}
+              allComments={allComments}
+              authors={authors}
+              myUserId={myUserId}
+              isAdmin={isAdmin}
+              openReplyFor={openReplyFor}
+              setOpenReplyFor={setOpenReplyFor}
+              nestedDraft={nestedDraft}
+              setNestedDraft={setNestedDraft}
+              nestedPosting={nestedPosting}
+              nestedError={nestedError}
+              submitNestedReply={submitNestedReply}
+              deleteOwnComment={deleteOwnComment}
+              deleteAsAdminComment={deleteAsAdminComment}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CommunityThreadPage() {
   const params = useParams<{ id: string }>();
@@ -17,7 +145,7 @@ export default function CommunityThreadPage() {
   const [post, setPost] = useState<CommunityPost | null>(null);
   const [notFound, setNotFound] = useState(false);
   const [comments, setComments] = useState<CommunityComment[]>([]);
-  const [avatars, setAvatars] = useState<Record<string, string | null>>({});
+  const [authors, setAuthors] = useState<Record<string, AuthorInfo>>({});
   const [myAvatar, setMyAvatar] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -26,6 +154,11 @@ export default function CommunityThreadPage() {
   const [reply, setReply] = useState("");
   const [posting, setPosting] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+
+  const [openReplyFor, setOpenReplyFor] = useState<string | null>(null);
+  const [nestedDraft, setNestedDraft] = useState("");
+  const [nestedPosting, setNestedPosting] = useState(false);
+  const [nestedError, setNestedError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -47,12 +180,13 @@ export default function CommunityThreadPage() {
     if (ids.length > 0) {
       const { data: profiles } = await supabase
         .from("profiles")
-        .select("user_id, avatar_url")
+        .select("user_id, avatar_url, name_color, verified")
         .in("user_id", ids)
-        .returns<{ user_id: string; avatar_url: string | null }[]>();
-      const avatarMap: Record<string, string | null> = {};
-      for (const pr of profiles ?? []) avatarMap[pr.user_id] = pr.avatar_url;
-      setAvatars(avatarMap);
+        .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean }[]>();
+      const authorMap: Record<string, AuthorInfo> = {};
+      for (const pr of profiles ?? [])
+        authorMap[pr.user_id] = { avatar_url: pr.avatar_url, name_color: pr.name_color, verified: pr.verified };
+      setAuthors(authorMap);
     }
     setLoading(false);
   }
@@ -100,6 +234,32 @@ export default function CommunityThreadPage() {
       setReplyError("Couldn't reach the server");
     } finally {
       setPosting(false);
+    }
+  }
+
+  async function submitNestedReply(parentId: string) {
+    const body = nestedDraft.trim();
+    if (!body) return;
+    setNestedPosting(true);
+    setNestedError(null);
+    try {
+      const res = await fetch(`/api/community/${postId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body, parentId }),
+      });
+      const resBody = await res.json();
+      if (!res.ok) {
+        setNestedError(resBody.error || "Couldn't post that reply");
+        return;
+      }
+      setNestedDraft("");
+      setOpenReplyFor(null);
+      await load();
+    } catch {
+      setNestedError("Couldn't reach the server");
+    } finally {
+      setNestedPosting(false);
     }
   }
 
@@ -163,6 +323,7 @@ export default function CommunityThreadPage() {
   }
 
   const canDeletePost = isAdmin || post.user_id === myUserId;
+  const topLevel = comments.filter((c) => !c.parent_id);
 
   return (
     <PullToRefresh onRefresh={load}>
@@ -174,10 +335,18 @@ export default function CommunityThreadPage() {
         <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
           <AuthorLine
             username={post.author_username}
-            avatarUrl={avatars[post.user_id]}
+            avatarUrl={authors[post.user_id]?.avatar_url}
+            color={authors[post.user_id]?.name_color}
+            verified={authors[post.user_id]?.verified}
             createdAt={post.created_at}
           />
-          <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{post.message}</p>
+          {post.message && (
+            <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">{post.message}</p>
+          )}
+          {post.photo_url && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-xl object-cover" />
+          )}
           <div className="mt-3 flex items-center gap-1 border-t border-zinc-800 pt-2.5">
             <button
               onClick={share}
@@ -224,25 +393,30 @@ export default function CommunityThreadPage() {
           <p className="text-sm font-semibold text-zinc-300">
             {comments.length > 0 ? `${comments.length} ${comments.length === 1 ? "reply" : "replies"}` : "No replies yet"}
           </p>
-          {comments.map((c) => {
-            const canDelete = isAdmin || c.user_id === myUserId;
-            return (
-              <div key={c.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
-                <AuthorLine username={c.author_username} avatarUrl={avatars[c.user_id]} createdAt={c.created_at} />
-                <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">{c.body}</p>
-                {canDelete && (
-                  <button
-                    onClick={() =>
-                      isAdmin && c.user_id !== myUserId ? deleteAsAdminComment(c.id) : deleteOwnComment(c.id)
-                    }
-                    className="mt-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
-                  >
-                    Delete
-                  </button>
-                )}
-              </div>
-            );
-          })}
+          {topLevel.map((c) => (
+            <CommentNode
+              key={c.id}
+              comment={c}
+              depth={0}
+              allComments={comments}
+              authors={authors}
+              myUserId={myUserId}
+              isAdmin={isAdmin}
+              openReplyFor={openReplyFor}
+              setOpenReplyFor={(id) => {
+                setOpenReplyFor(id);
+                setNestedDraft("");
+                setNestedError(null);
+              }}
+              nestedDraft={nestedDraft}
+              setNestedDraft={setNestedDraft}
+              nestedPosting={nestedPosting}
+              nestedError={nestedError}
+              submitNestedReply={submitNestedReply}
+              deleteOwnComment={deleteOwnComment}
+              deleteAsAdminComment={deleteAsAdminComment}
+            />
+          ))}
         </div>
       </div>
     </PullToRefresh>

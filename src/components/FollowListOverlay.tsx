@@ -1,0 +1,85 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
+import Avatar from "@/components/Avatar";
+import UserName from "@/components/UserName";
+
+interface Row {
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+  name_color: string | null;
+  verified: boolean;
+}
+
+/** Full-screen list of a profile's followers or following, opened by
+ * tapping the count on the profile header — keeps you in the app instead
+ * of navigating to a whole new route for something this quick. */
+export default function FollowListOverlay({
+  userId,
+  mode,
+  onClose,
+}: {
+  userId: string;
+  mode: "followers" | "following";
+  onClose: () => void;
+}) {
+  const supabase = createClient();
+  const [rows, setRows] = useState<Row[] | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      const column = mode === "followers" ? "following_id" : "follower_id";
+      const otherColumn = mode === "followers" ? "follower_id" : "following_id";
+      const { data: links } = await supabase.from("follows").select(otherColumn).eq(column, userId);
+      const ids = [...new Set((links ?? []).map((l) => (l as Record<string, string>)[otherColumn]))];
+      if (ids.length === 0) {
+        setRows([]);
+        return;
+      }
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("user_id, username, avatar_url, name_color, verified")
+        .in("user_id", ids)
+        .returns<Row[]>();
+      setRows(profiles ?? []);
+    }
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, mode]);
+
+  return (
+    <div className="fixed inset-0 z-[70] flex flex-col bg-zinc-950" onClick={onClose}>
+      <div
+        className="flex items-center justify-between border-b border-zinc-800 px-4 py-3.5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-base font-bold capitalize">{mode}</p>
+        <button onClick={onClose} className="rounded-full bg-zinc-900 px-3 py-1.5 text-sm font-medium text-zinc-300">
+          Close
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {rows === null && <p className="p-5 text-sm text-zinc-500">Loading...</p>}
+        {rows?.length === 0 && (
+          <p className="p-8 text-center text-sm text-zinc-500">
+            {mode === "followers" ? "No followers yet." : "Not following anyone yet."}
+          </p>
+        )}
+        {rows?.map((r) => (
+          <Link
+            key={r.user_id}
+            href={`/profile/${encodeURIComponent(r.username)}`}
+            onClick={onClose}
+            className="flex items-center gap-3 px-4 py-2.5 active:bg-zinc-900"
+          >
+            <Avatar url={r.avatar_url} name={r.username} size={40} />
+            <UserName username={r.username} color={r.name_color} verified={r.verified} className="text-sm font-semibold" />
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}

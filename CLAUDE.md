@@ -147,8 +147,50 @@ leftover conventions in this file make sense.
 - **Visual style**: Uiverse.io-inspired but hand-authored CSS in
   `src/app/globals.css` — `.lf-glow` (pulsing box-shadow), `.lf-gradient-border`
   (rotating `conic-gradient` border via `@property --lf-angle`), `.lf-shine`
-  (diagonal shine sweep). Used on the "lifeform" button and card-style UI
-  throughout.
+  (diagonal shine sweep), `.lf-avatar-ring` (the same conic-gradient trick,
+  circular, around an avatar), `.lf-dev-name` (animated rainbow gradient
+  text, reserved — see "Social features" below). Used on the "lifeform"
+  button and card-style UI throughout.
+
+## Social features (profiles, follows, dev cosmetics)
+
+- **Profile page** (`src/app/profile/[username]/page.tsx`) is Instagram-
+  shaped: avatar with `.lf-avatar-ring`, a Posts/Followers/Following stats
+  row (the latter two open `FollowListOverlay.tsx`, a full-screen list —
+  not a separate route, so it stays fluid), edge-to-edge photo grid. Tapping
+  a grid photo opens `PhotoLightbox.tsx` with the WHOLE gallery + a starting
+  index, not just one photo — swipe or use the ‹ › buttons to move through
+  every post without closing and reopening the lightbox.
+- **Usernames are globally unique** (`profiles.username unique`, already
+  true from day one) — `src/app/api/users/search/route.ts` +
+  `FindPeople.tsx` (in Settings) does an `ilike` lookup so anyone can be
+  found by handle instead of hunting through posts.
+- **Developer-mode cosmetics**: `profiles.name_color` and `profiles.verified`
+  are the ONLY two columns a normal authenticated update can never change —
+  see the `lock_profile_admin_fields` trigger in `schema.sql`, which pins
+  both back to their old value unless the write comes from the service-role
+  client. The only thing that uses the service-role client for this is
+  `src/app/api/admin/users/[userId]/route.ts` (PATCH, developer-mode-gated
+  via the `lf_admin` cookie same as the other `/api/admin/*` routes) — set
+  from a "Developer tools" panel that appears on any profile when you're in
+  developer mode. `src/lib/nameColor.ts` holds the preset color palette and
+  `RESERVED_DEV_COLOR` ("gradient:dev", rendered via `.lf-dev-name`) — the
+  API route refuses to grant that reserved value to anyone but the
+  requesting dev's own account, so it can never end up on someone else's
+  name even from another dev-mode session. `UserName.tsx` is what actually
+  renders a colored/verified username; it's used everywhere one appears
+  (`AuthorLine.tsx` for community/comments, the profile header, messages).
+- **Community as a Discover-style feed**: promoted to its own bottom-nav tab.
+  Posts can carry a photo (`community_posts.photo_url`, uploaded to the
+  `profile-media` bucket under `<user_id>/community/`). Replies can nest —
+  `community_comments.parent_id` self-references the table, and
+  `community/[id]/page.tsx` has a small recursive `CommentNode` component
+  that renders the tree with a per-comment "Reply" toggle (replying to a
+  reply notifies THAT comment's author, not the original poster — see the
+  comments API route).
+- **Messages can carry a photo** (`messages.photo_url`, `body` is now
+  nullable since a message can be photo-only) — uploaded the same way, to
+  `<user_id>/messages/`.
 
 ## Types & schema
 

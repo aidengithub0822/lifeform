@@ -80,6 +80,24 @@ body {
   padding: 3px;
 }
 
+/* Developer-exclusive name color — an animated rainbow gradient no one else
+   can be given (enforced server-side, see src/lib/nameColor.ts). */
+.lf-dev-name {
+  background: linear-gradient(90deg, #f43f5e, #f97316, #eab308, #22c55e, #06b6d4, #3b82f6, #a855f7, #f43f5e);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lf-dev-name-sweep 4s linear infinite;
+  font-weight: 700;
+}
+
+@keyframes lf-dev-name-sweep {
+  to {
+    background-position: 300% 0;
+  }
+}
+
 .lf-shine {
   position: relative;
   overflow: hidden;

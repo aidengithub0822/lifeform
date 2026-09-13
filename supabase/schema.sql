@@ -140,6 +140,30 @@ create table if not exists public.profiles (
 alter table public.profiles add column if not exists bio text;
 alter table public.profiles add column if not exists avatar_url text;
 
+-- Developer-mode-only cosmetics: a custom name color and a verified
+-- checkmark. Neither is ever settable by the user themselves — see the
+-- trigger below, which pins both columns to their previous value on any
+-- update that doesn't come from the service-role client (i.e. anything
+-- other than /api/admin/users/[userId]).
+alter table public.profiles add column if not exists name_color text;
+alter table public.profiles add column if not exists verified boolean not null default false;
+
+create or replace function public.lock_profile_admin_fields()
+returns trigger as $$
+begin
+  if auth.role() <> 'service_role' then
+    new.name_color := old.name_color;
+    new.verified := old.verified;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists lock_profile_admin_fields on public.profiles;
+create trigger lock_profile_admin_fields
+  before update on public.profiles
+  for each row execute function public.lock_profile_admin_fields();
+
 -- Images a user posts to their own profile gallery — separate from progress
 -- photos (body-check tracking) and community posts (the shared feed).
 -- Visible to anyone who visits that profile, postable/deletable only by
@@ -166,6 +190,9 @@ create table if not exists public.messages (
 );
 create index if not exists messages_sender_time_idx on public.messages (sender_id, created_at desc);
 create index if not exists messages_recipient_time_idx on public.messages (recipient_id, created_at desc);
+-- Existing installs: a message can now be a photo instead of (or with) text.
+alter table public.messages alter column body drop not null;
+alter table public.messages add column if not exists photo_url text;
 
 -- Free-form dated journal entries, shown on the Progress tab. Multiple
 -- entries per day are allowed (unlike measurements, which are one-per-day).
@@ -218,10 +245,14 @@ create table if not exists public.community_posts (
   created_at timestamptz not null default now()
 );
 create index if not exists community_posts_time_idx on public.community_posts (created_at desc);
+-- Existing installs: posts can now carry a photo (Discover-style feed).
+alter table public.community_posts add column if not exists photo_url text;
 
 -- Replies on a community post — what makes a post open into its own thread
 -- page instead of being a flat, un-discussable list. Moderated the same way
--- as top-level posts (checked by AI before insert).
+-- as top-level posts (checked by AI before insert). parent_id is null for a
+-- top-level reply to the post itself, or another comment's id for a reply
+-- to that reply — lets the thread nest instead of staying flat.
 create table if not exists public.community_comments (
   id uuid primary key default gen_random_uuid(),
   post_id uuid not null references public.community_posts(id) on delete cascade,
@@ -231,6 +262,9 @@ create table if not exists public.community_comments (
   created_at timestamptz not null default now()
 );
 create index if not exists community_comments_post_time_idx on public.community_comments (post_id, created_at asc);
+-- Existing installs: nested replies.
+alter table public.community_comments add column if not exists parent_id uuid references public.community_comments(id) on delete cascade;
+create index if not exists community_comments_parent_idx on public.community_comments (parent_id);
 
 -- Likes and comments on a profile gallery photo.
 create table if not exists public.photo_likes (

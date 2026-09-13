@@ -30,17 +30,20 @@ export async function POST(request: Request) {
 
   const body = await request.json();
   const message = typeof body?.message === "string" ? body.message.trim() : "";
-  if (!message) return NextResponse.json({ error: "Post can't be empty" }, { status: 400 });
+  const photoUrl = typeof body?.photoUrl === "string" && body.photoUrl ? body.photoUrl : null;
+  if (!message && !photoUrl) return NextResponse.json({ error: "Post can't be empty" }, { status: 400 });
   if (message.length > 1000) {
     return NextResponse.json({ error: "Keep it under 1000 characters" }, { status: 400 });
   }
 
-  const { allowed, reason } = await moderate(message);
-  if (!allowed) {
-    return NextResponse.json(
-      { error: reason || "This post doesn't meet the community guidelines — try rephrasing." },
-      { status: 422 }
-    );
+  if (message) {
+    const { allowed, reason } = await moderate(message);
+    if (!allowed) {
+      return NextResponse.json(
+        { error: reason || "This post doesn't meet the community guidelines — try rephrasing." },
+        { status: 422 }
+      );
+    }
   }
 
   const { data: profile } = await supabase
@@ -53,6 +56,7 @@ export async function POST(request: Request) {
     user_id: user.id,
     author_username: profile?.username ?? null,
     message,
+    photo_url: photoUrl,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

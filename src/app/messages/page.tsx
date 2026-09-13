@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import PullToRefresh from "@/components/PullToRefresh";
+import UserName from "@/components/UserName";
 import type { Message, Profile } from "@/lib/types";
 
 interface ConversationRow {
@@ -121,14 +122,18 @@ export default function MessagesInboxPage() {
               </div>
               <div className="min-w-0 flex-1">
                 <div className="flex items-baseline justify-between gap-2">
-                  <p className="truncate text-sm font-semibold text-zinc-100">{p?.username ?? "Someone"}</p>
+                  {p ? (
+                    <UserName username={p.username} color={p.name_color} verified={p.verified} className="text-sm font-semibold text-zinc-100" />
+                  ) : (
+                    <p className="truncate text-sm font-semibold text-zinc-100">Someone</p>
+                  )}
                   <p className="shrink-0 text-[11px] text-zinc-600">
                     {formatDistanceToNow(new Date(c.lastMessage.created_at), { addSuffix: true })}
                   </p>
                 </div>
                 <p className="truncate text-xs text-zinc-500">
                   {isMine ? "You: " : ""}
-                  {c.lastMessage.body}
+                  {c.lastMessage.body || "📷 Photo"}
                 </p>
               </div>
             </Link>

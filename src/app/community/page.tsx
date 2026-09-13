@@ -1,20 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { compressImageForUpload } from "@/lib/imageUpload";
 import AuthorLine from "@/components/AuthorLine";
 import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
-import type { CommunityPost } from "@/lib/types";
+import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
   const supabase = createClient();
   const [posts, setPosts] = useState<CommunityPost[] | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
-  const [avatars, setAvatars] = useState<Record<string, string | null>>({});
+  const [authors, setAuthors] = useState<Record<string, AuthorInfo>>({});
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -22,6 +25,7 @@ export default function CommunityPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -41,16 +45,17 @@ export default function CommunityPage() {
               .returns<{ post_id: string }[]>(),
             supabase
               .from("profiles")
-              .select("user_id, avatar_url")
+              .select("user_id, avatar_url, name_color, verified")
               .in("user_id", ids)
-              .returns<{ user_id: string; avatar_url: string | null }[]>(),
+              .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean }[]>(),
           ]);
           const counts: Record<string, number> = {};
           for (const c of comments ?? []) counts[c.post_id] = (counts[c.post_id] ?? 0) + 1;
           setCommentCounts(counts);
-          const avatarMap: Record<string, string | null> = {};
-          for (const p of profiles ?? []) avatarMap[p.user_id] = p.avatar_url;
-          setAvatars(avatarMap);
+          const authorMap: Record<string, AuthorInfo> = {};
+          for (const p of profiles ?? [])
+            authorMap[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified };
+          setAuthors(authorMap);
         }
       }
     } finally {
@@ -79,16 +84,42 @@ export default function CommunityPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function pickPhoto(file: File) {
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function clearPhoto() {
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function submitPost() {
     const message = draft.trim();
-    if (!message) return;
+    if (!message && !photoFile) return;
+    if (!myUserId) return;
     setPosting(true);
     setError(null);
     try {
+      let photoUrl: string | null = null;
+      if (photoFile) {
+        const blob = await compressImageForUpload(photoFile, 1600, 0.85);
+        const path = `${myUserId}/community/${Date.now()}.jpg`;
+        const { error: uploadError } = await supabase.storage.from("profile-media").upload(path, blob, {
+          contentType: "image/jpeg",
+        });
+        if (uploadError) {
+          setError(uploadError.message);
+          return;
+        }
+        photoUrl = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      }
+
       const res = await fetch("/api/community", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, photoUrl }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -96,6 +127,7 @@ export default function CommunityPage() {
         return;
       }
       setDraft("");
+      clearPhoto();
       await load();
     } catch {
       setError("Couldn't reach the server");
@@ -169,15 +201,39 @@ export default function CommunityPage() {
               rows={2}
               className="w-full resize-none rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm outline-none focus:border-emerald-500"
             />
-            <div className="flex items-center justify-end gap-2">
-              {error && <p className="mr-auto text-xs text-red-400">{error}</p>}
-              <button
-                onClick={submitPost}
-                disabled={posting || !draft.trim()}
-                className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-60"
-              >
-                {posting ? "Posting..." : "Post"}
-              </button>
+            {photoPreview && (
+              <div className="relative w-fit">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={photoPreview} alt="" className="h-24 w-24 rounded-xl object-cover" />
+                <button
+                  onClick={clearPhoto}
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-black/80 px-1.5 py-0.5 text-[10px] font-bold text-white"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <label className="cursor-pointer rounded-full border border-zinc-700 px-2.5 py-1 text-xs font-medium text-zinc-400 active:bg-zinc-800">
+                📷 Photo
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => e.target.files?.[0] && pickPhoto(e.target.files[0])}
+                />
+              </label>
+              <div className="flex items-center gap-2">
+                {error && <p className="text-xs text-red-400">{error}</p>}
+                <button
+                  onClick={submitPost}
+                  disabled={posting || (!draft.trim() && !photoFile)}
+                  className="rounded-full bg-emerald-500 px-4 py-1.5 text-sm font-semibold text-black disabled:opacity-60"
+                >
+                  {posting ? "Posting..." : "Post"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -200,7 +256,9 @@ export default function CommunityPage() {
               >
                 <AuthorLine
                   username={post.author_username}
-                  avatarUrl={avatars[post.user_id]}
+                  avatarUrl={authors[post.user_id]?.avatar_url}
+                  color={authors[post.user_id]?.name_color}
+                  verified={authors[post.user_id]?.verified}
                   createdAt={post.created_at}
                 />
 
@@ -229,9 +287,19 @@ export default function CommunityPage() {
                   </div>
                 ) : (
                   <Link href={`/community/${post.id}`} className="block">
-                    <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
-                      {post.message}
-                    </p>
+                    {post.message && (
+                      <p className="mt-2.5 whitespace-pre-wrap text-sm leading-relaxed text-zinc-100">
+                        {post.message}
+                      </p>
+                    )}
+                    {post.photo_url && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={post.photo_url}
+                        alt=""
+                        className="mt-2.5 max-h-96 w-full rounded-xl object-cover"
+                      />
+                    )}
                   </Link>
                 )}
 
