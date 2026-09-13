@@ -19,9 +19,10 @@ export async function GET() {
   const [{ data: lifts }, { data: plan }, { data: measurements }] = await Promise.all([
     supabase
       .from("lifts")
-      .select("lift_name, weight_lb, reps, sets")
+      .select("lift_name, weight_lb, reps, sets, logged_at")
       .eq("user_id", user.id)
-      .limit(500)
+      .order("logged_at", { ascending: true })
+      .limit(3000)
       .returns<LiftForRank[]>(),
     supabase.from("training_plans").select("*").eq("user_id", user.id).maybeSingle(),
     supabase

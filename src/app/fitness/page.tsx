@@ -26,6 +26,12 @@ interface MuscleRankApiResult {
   score: number;
   bestLift: { name: string; weight_lb: number; reps: number } | null;
   totalSetsLogged: number;
+  qualifyingDays: number;
+  progress: number;
+  nextTier: RankTier | null;
+  limitingFactor: "score" | "days" | null;
+  daysNeededForNextTier: number | null;
+  scoreNeededForNextTier: number | null;
 }
 
 // Inline set-logging form shown under a tapped exercise row. Kept as its own
@@ -362,6 +368,35 @@ export default function FitnessPage() {
             <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
           ) : (
             <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
+          )}
+
+          {selectedRank.nextTier ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-[#71717a]">
+                  Progress to {rankMeta(selectedRank.nextTier).label}
+                </span>
+                <span className="text-[10px] font-semibold text-[#a1a1aa]">{Math.round(selectedRank.progress * 100)}%</span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(4, selectedRank.progress * 100)}%`,
+                    backgroundColor: rankMeta(selectedRank.nextTier).color ?? "#71717a",
+                  }}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-[#71717a]">
+                {selectedRank.limitingFactor === "days" && selectedRank.daysNeededForNextTier
+                  ? `${selectedRank.daysNeededForNextTier} more qualifying training day${selectedRank.daysNeededForNextTier === 1 ? "" : "s"} at this strength level to rank up.`
+                  : selectedRank.limitingFactor === "score" && selectedRank.scoreNeededForNextTier
+                    ? "Lift heavier relative to your bodyweight to open up qualifying days for this tier."
+                    : "Keep training consistently to rank up."}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
           )}
         </div>
       )}

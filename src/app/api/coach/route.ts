@@ -52,26 +52,38 @@ function liftsSummary(lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" 
   return `Recent logged lifts (most recent first per exercise):\n${lines.join("\n")}`;
 }
 
-function muscleRankSummary(lifts: LiftForRank[], bodyweightLb: number | null): string {
-  const ranks = computeAllMuscleRanks(MUSCLE_GROUPS, lifts, bodyweightLb);
+function muscleRankSummary(allLifts: LiftForRank[], bodyweightLb: number | null): string {
+  const ranks = computeAllMuscleRanks(MUSCLE_GROUPS, allLifts, bodyweightLb);
   const trained = ranks.filter((r) => r.tier !== "newbie" || r.totalSetsLogged > 0);
   if (trained.length === 0) {
     return "They haven't logged enough sets yet for the per-muscle rank map on the Fitness tab to show anything beyond Newbie.";
   }
   const lines = ranks
-    .map((r) => `${MUSCLE_LABELS[r.muscle]}: ${rankMeta(r.tier).label}${r.bestLift ? ` (best ${r.bestLift.name} ${r.bestLift.weight_lb}lb x ${r.bestLift.reps})` : ""}`)
+    .map((r) => {
+      const progressNote = r.nextTier
+        ? ` — ${Math.round(r.progress * 100)}% of the way to ${rankMeta(r.nextTier).label}${
+            r.limitingFactor === "days" && r.daysNeededForNextTier
+              ? ` (needs ${r.daysNeededForNextTier} more qualifying training day${r.daysNeededForNextTier === 1 ? "" : "s"})`
+              : r.limitingFactor === "score" && r.scoreNeededForNextTier
+                ? " (needs a heavier top set)"
+                : ""
+          }`
+        : " (top tier)";
+      return `${MUSCLE_LABELS[r.muscle]}: ${rankMeta(r.tier).label}${r.bestLift ? ` (best ${r.bestLift.name} ${r.bestLift.weight_lb}lb x ${r.bestLift.reps})` : ""}${progressNote}`;
+    })
     .join(", ");
   const sorted = [...ranks].sort((a, b) => a.score - b.score);
   const weakest = sorted.slice(0, 2).map((r) => MUSCLE_LABELS[r.muscle]);
   const strongest = sorted.slice(-2).reverse().map((r) => MUSCLE_LABELS[r.muscle]);
-  return `Per-muscle rank map (from the Fitness tab, bodyweight-relative — same tier ladder as the account rank): ${lines}. Their currently weakest-ranked muscles are ${weakest.join(" and ")}; strongest are ${strongest.join(" and ")}. When they ask what to work on, or what's lagging, use this real data instead of guessing — and feel free to recommend specific exercises from their exercise catalog that target a weak muscle.`;
+  return `Per-muscle rank map (from the Fitness tab): each muscle's tier is gated on BOTH a bodyweight-relative strength score AND a number of distinct "qualifying days" that hit that score, so a rank reflects sustained real training, not one lucky lift — higher tiers require many more qualifying days, by design (Platinum to Titan takes roughly a year of consistent training). Same tier ladder and colors as the account rank, now including Titan above Grand Champion. Current standing: ${lines}. Their currently weakest-ranked muscles are ${weakest.join(" and ")}; strongest are ${strongest.join(" and ")}. When they ask what to work on, what's lagging, or how close they are to ranking up, use this real data instead of guessing — and feel free to recommend specific exercises from their exercise catalog that target a weak muscle.`;
 }
 
 function systemPrompt(
   goal: Goal | null,
   measurements: Pick<Measurement, "logged_at" | "weight_lb">[],
   plan: TrainingPlan | null,
-  lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]
+  lifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[],
+  allLifts: Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]
 ): string {
   const goalLine = goal
     ? `Their current goal: ${goal.phase} phase, ~${goal.calorie_target} kcal/day, ~${goal.protein_target_g}g protein/day${
@@ -89,7 +101,7 @@ ${trainingSummary(plan)}
 
 ${liftsSummary(lifts)}
 
-${muscleRankSummary(lifts, plan?.ideal_weight_lb ?? measurements.filter((m) => m.weight_lb != null).slice(-1)[0]?.weight_lb ?? null)}
+${muscleRankSummary(allLifts, plan?.ideal_weight_lb ?? measurements.filter((m) => m.weight_lb != null).slice(-1)[0]?.weight_lb ?? null)}
 
 When the user asks about their progress, reference this actual logged data (trend direction, how it compares to their goal phase, their real lift numbers and split) rather than speaking generally. If they haven't logged anything yet, encourage them to log a weight entry in the Progress tab or a set in the Fitness tab so you can track it together.
 
@@ -132,7 +144,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No message provided" }, { status: 400 });
   }
 
-  const [{ data: goal }, { data: measurements }, { data: plan }, { data: lifts }] = await Promise.all([
+  const [{ data: goal }, { data: measurements }, { data: plan }, { data: lifts }, { data: allLifts }] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle(),
     supabase
       .from("measurements")
@@ -148,6 +160,15 @@ export async function POST(request: Request) {
       .order("logged_at", { ascending: false })
       .limit(40)
       .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
+    // Full history (not just the recent-40 above) — the per-muscle rank's
+    // qualifying-day counting needs every logged day, not a recent slice.
+    supabase
+      .from("lifts")
+      .select("logged_at, lift_name, weight_lb, reps, sets")
+      .eq("user_id", user.id)
+      .order("logged_at", { ascending: true })
+      .limit(3000)
+      .returns<Pick<Lift, "logged_at" | "lift_name" | "weight_lb" | "reps" | "sets">[]>(),
   ]);
 
   try {
@@ -158,7 +179,8 @@ export async function POST(request: Request) {
         goal as Goal | null,
         measurements ?? [],
         plan as TrainingPlan | null,
-        lifts ?? []
+        lifts ?? [],
+        allLifts ?? []
       ),
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     });
