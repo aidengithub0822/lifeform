@@ -32,8 +32,19 @@ export async function proxy(request: NextRequest) {
 
   const publicPaths = ["/login", "/signup", "/auth/callback"];
   const isPublic = publicPaths.some((p) => request.nextUrl.pathname.startsWith(p));
+  // Every /api/* route already does its own auth check (a cookie session,
+  // the dev-mode admin cookie, or — for /api/widget specifically — an
+  // unguessable per-user token, since home-screen widgets can't hold a
+  // browser session at all) and returns a proper JSON error when it fails.
+  // Redirecting an unauthenticated API request to the (HTML) /login page
+  // instead of letting the route respond is wrong for all of them: it's
+  // what turned a perfectly valid /api/widget?token=... request from
+  // Scriptable into /login?token=... — the query string survives the
+  // rewrite below, but the path doesn't, so the widget got an HTML page
+  // back and failed to parse it as JSON.
+  const isApiRoute = request.nextUrl.pathname.startsWith("/api/");
 
-  if (!user && !isPublic) {
+  if (!user && !isPublic && !isApiRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     return NextResponse.redirect(url);
