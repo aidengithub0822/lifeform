@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { getChainLogoUrl } from "@/lib/chainLogos";
 
 interface FoodPick {
   food_name: string;
@@ -225,9 +226,24 @@ export default function DiscoverPage() {
             </div>
           )}
 
-          {groupedByChain.map(([chain, items]) => (
+          {groupedByChain.map(([chain, items]) => {
+            const logo = getChainLogoUrl(chain);
+            return (
             <div key={chain} className="mt-4">
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">{chain}</p>
+              <div className="mb-2 flex items-center gap-2">
+                {logo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={logo}
+                    alt=""
+                    className="h-5 w-5 rounded bg-white object-contain p-0.5"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none";
+                    }}
+                  />
+                )}
+                <p className="text-xs font-semibold uppercase tracking-wide text-zinc-500">{chain}</p>
+              </div>
               <div className="space-y-2">
                 {items.map((item, i) => (
                   <div key={`${item.item}-${i}`} className="lf-gradient-border p-3.5">
@@ -243,7 +259,8 @@ export default function DiscoverPage() {
                 ))}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -276,10 +293,25 @@ export default function DiscoverPage() {
 
           {places && (
             <div className="mt-4 space-y-2">
-              {places.map((place, i) => (
+              {places.map((place, i) => {
+                const logo = getChainLogoUrl(place.name);
+                return (
                 <div key={`${place.name}-${i}`} className="lf-gradient-border p-3.5">
                   <div className="flex items-baseline justify-between gap-2">
-                    <p className="text-sm font-semibold text-zinc-100">{place.name}</p>
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      {logo && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={logo}
+                          alt=""
+                          className="h-4 w-4 shrink-0 rounded bg-white object-contain p-0.5"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      )}
+                      <p className="truncate text-sm font-semibold text-zinc-100">{place.name}</p>
+                    </div>
                     <p className="shrink-0 text-xs font-medium text-zinc-400">
                       {place.price_range} · {money(place.est_price_usd)}
                     </p>
@@ -288,7 +320,8 @@ export default function DiscoverPage() {
                   <p className="mt-1.5 text-xs text-emerald-400">Order: {place.order_suggestion}</p>
                   <p className="mt-1 text-xs text-zinc-400">{place.why}</p>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
