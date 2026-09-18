@@ -752,7 +752,9 @@ create trigger lock_message_read_receipt
 -- same request); renaming/deleting is admin-only.
 drop policy if exists "conversations_select_participant" on public.conversations;
 create policy "conversations_select_participant" on public.conversations
-  for select using (public.is_conversation_participant(id, auth.uid()));
+  for select using (
+    created_by = auth.uid() or public.is_conversation_participant(id, auth.uid())
+  );
 
 drop policy if exists "conversations_insert_own" on public.conversations;
 create policy "conversations_insert_own" on public.conversations
