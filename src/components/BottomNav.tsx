@@ -3,14 +3,13 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Five predictable destinations: Home (today's snapshot), Train (log food +
-// workout + plan/ideas), Coach (the AI — deliberately the CENTER tab, since
-// it's the app's most important feature and now has real read/write access
-// to your data, not just chat), Progress (weight/photos/trends), Profile
-// (your public identity + account, which now also links out to
-// Community/Messages at its top). Scan/Recipes/Community used to each get
-// their own top-level tab — they now live inside Train/Profile so the
-// bottom nav answers "where does X live" without growing past five items.
+// Six predictable destinations: Home (today's snapshot + quick links to
+// Recipes/Meal ideas), Fitness (opens straight to the muscle-rank page —
+// previously buried a tap deeper inside "Train"), Coach (the AI — the most
+// visually prominent tab, since it's the app's most important feature and
+// has real read/write access to your data, not just chat), Progress
+// (weight/photos/trends), Social (the community feed), Profile (your public
+// identity + account — DMs live behind the message-bubble icon there).
 // Inline stroke icons, matching the app's design system (no emoji in the UI chrome).
 function HomeIcon() {
   return (
@@ -20,10 +19,18 @@ function HomeIcon() {
     </svg>
   );
 }
-function TrainIcon() {
+function FitnessIcon() {
   return (
     <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6.5 6.5l11 11M4 9V4h5M20 15v5h-5M4 4l7 7M20 20l-7-7" />
+      <path d="M4 8v8M2 10v4M20 8v8M22 10v4M6.5 12h11" />
+    </svg>
+  );
+}
+function SocialIcon() {
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M3 12h18M12 3c2.5 2.5 2.5 15.5 0 18M12 3c-2.5 2.5-2.5 15.5 0 18" />
     </svg>
   );
 }
@@ -54,18 +61,24 @@ function ProfileIcon() {
 const tabs = [
   { href: "/", label: "Home", Icon: HomeIcon, matches: ["/"] },
   {
-    href: "/train",
-    label: "Train",
-    Icon: TrainIcon,
-    matches: ["/train", "/scan", "/fitness", "/recipes", "/discover"],
+    href: "/fitness",
+    label: "Fitness",
+    Icon: FitnessIcon,
+    matches: ["/fitness", "/train", "/scan", "/recipes", "/discover"],
   },
   { href: "/coach", label: "Coach", Icon: CoachIcon, matches: ["/coach"] },
   { href: "/progress", label: "Progress", Icon: ProgressIcon, matches: ["/progress"] },
   {
+    href: "/community",
+    label: "Social",
+    Icon: SocialIcon,
+    matches: ["/community", "/social"],
+  },
+  {
     href: "/profile",
     label: "Profile",
     Icon: ProfileIcon,
-    matches: ["/profile", "/social", "/community", "/messages"],
+    matches: ["/profile", "/messages"],
   },
 ];
 

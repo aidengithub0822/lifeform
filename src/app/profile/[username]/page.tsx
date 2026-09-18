@@ -12,6 +12,7 @@ import UserName from "@/components/UserName";
 import FollowListOverlay from "@/components/FollowListOverlay";
 import { NAME_COLOR_PRESETS, RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { rankMeta } from "@/lib/rank";
+import { MessageIcon } from "@/components/icons";
 import type { Profile, ProfilePhoto } from "@/lib/types";
 
 export default function ProfilePage() {
@@ -336,14 +337,13 @@ export default function ProfilePage() {
           ← Back
         </Link>
         {isOwn && (
-          <div className="flex gap-2">
-            <Link href="/community" className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 active:opacity-70">
-              Community
-            </Link>
-            <Link href="/messages" className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 active:opacity-70">
-              Messages
-            </Link>
-          </div>
+          <Link
+            href="/messages"
+            aria-label="Direct messages"
+            className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-300 active:scale-95"
+          >
+            <MessageIcon className="h-[18px] w-[18px]" />
+          </Link>
         )}
       </div>
 

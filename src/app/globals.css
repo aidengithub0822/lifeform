@@ -67,6 +67,18 @@ body {
   animation: lf-pulse-glow 2.6s ease-in-out infinite;
 }
 
+/* A calmer, non-animated cousin of .lf-glow — a persistent green aura for
+   AI-generated content (Coach replies, AI photo analysis, AI scores) so
+   those surfaces read as distinctly "AI" at a glance without the constant
+   pulsing motion of .lf-glow being appropriate everywhere (e.g. a whole
+   scrolling chat thread of pulsing bubbles would be too busy). */
+.lf-ai-aura {
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.12),
+    0 0 22px 2px rgba(16, 185, 129, 0.22);
+}
+
 .lf-gradient-border {
   position: relative;
   border-radius: 1.25rem;

@@ -6,6 +6,7 @@ import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
 import PullToRefresh from "@/components/PullToRefresh";
 import UserName from "@/components/UserName";
+import FindPeople from "@/components/FindPeople";
 import type { Message, Profile } from "@/lib/types";
 
 interface ConversationRow {
@@ -139,6 +140,11 @@ export default function MessagesInboxPage() {
             </Link>
           );
         })}
+      </div>
+
+      <div className="mt-8">
+        <h2 className="mb-2 text-sm font-semibold text-zinc-300">Find people</h2>
+        <FindPeople />
       </div>
     </div>
     </PullToRefresh>

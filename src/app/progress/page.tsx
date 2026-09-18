@@ -257,9 +257,12 @@ export default function ProgressPage() {
   return (
     <PullToRefresh onRefresh={load}>
     <div className="mx-auto max-w-md px-5 py-7 pb-8">
-      <h1 className="text-xl font-bold tracking-tight">Progress</h1>
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight">Progress</h1>
+        <p className="mt-0.5 text-xs text-[#71717a]">Weight, photos, and journal — tracked over time</p>
+      </div>
 
-      <div className="mt-6">
+      <div className="mt-6 rounded-2xl border border-[#1f1f23] bg-gradient-to-b from-[#111113] to-[#0c0c0e] p-4">
         <div className="flex items-baseline justify-between">
           <span className="text-sm font-semibold text-[#e4e4e7]">Weight</span>
           {latest && <span className="text-xs text-[#52525b]">Latest entries</span>}
@@ -314,7 +317,7 @@ export default function ProgressPage() {
         {saveError && <p className="mt-2 text-sm text-red-400">{saveError}</p>}
       </div>
 
-      <div className="mt-7">
+      <div className="mt-7 rounded-2xl border border-[#1f1f23] bg-[#0f0f11] p-4">
         <p className="text-sm font-semibold text-[#e4e4e7]">History</p>
         {loading && <p className="mt-3 text-sm text-[#71717a]">Loading...</p>}
         {!loading && history.length === 0 && (
@@ -344,7 +347,7 @@ export default function ProgressPage() {
         )}
       </div>
 
-      <div className="mt-7">
+      <div className="mt-7 rounded-2xl border border-[#1f1f23] bg-[#0f0f11] p-4">
         <p className="text-sm font-semibold text-[#e4e4e7]">Journal</p>
         <div className="mt-3 space-y-2">
           <textarea
@@ -384,8 +387,13 @@ export default function ProgressPage() {
         )}
       </div>
 
-      <div className="mt-7">
-        <p className="text-sm font-semibold text-[#e4e4e7]">Progress photos</p>
+      <div className="mt-7 rounded-2xl border border-[#1f1f23] bg-[#0f0f11] p-4">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-semibold text-[#e4e4e7]">Progress photos</p>
+          <span className="lf-ai-aura rounded-full bg-[#0c1f17] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-300">
+            AI scored
+          </span>
+        </div>
         {backfillTotal > 0 && backfillDone < backfillTotal && (
           <p className="mt-1.5 text-xs text-emerald-400">
             Analyzing your earlier photos with AI… ({backfillDone}/{backfillTotal})
@@ -437,7 +445,7 @@ export default function ProgressPage() {
                 className="aspect-square w-full rounded-xl object-cover"
               />
               {p.ai_leanness_score != null && (
-                <span className="absolute right-1 top-1 rounded-full bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-300">
+                <span className="lf-ai-aura absolute right-1 top-1 rounded-full bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-300">
                   {p.ai_leanness_score}
                 </span>
               )}
@@ -452,13 +460,13 @@ export default function ProgressPage() {
         </div>
 
         {photos.some((p) => p.ai_summary) && (
-          <div className="mt-4 space-y-2.5">
-            <p className="text-xs font-semibold text-[#e4e4e7]">AI notes</p>
+          <div className="lf-ai-aura mt-4 rounded-2xl bg-[#0b1512] p-3 space-y-2.5">
+            <p className="text-xs font-semibold uppercase tracking-wide text-emerald-300">✨ AI notes</p>
             {photos
               .filter((p) => p.ai_summary)
               .slice(0, 3)
               .map((p) => (
-                <div key={p.id} className="rounded-xl border border-[#27272a] bg-[#111113] p-3">
+                <div key={p.id} className="rounded-xl border border-emerald-500/20 bg-[#111113] p-3">
                   <div className="flex items-baseline justify-between gap-2">
                     <p className="text-xs font-medium capitalize text-[#a1a1aa]">
                       {p.angle} · {formatDate(p.taken_at)}

@@ -62,16 +62,24 @@ export default function CoachPage() {
         <Link href="/" className="text-sm font-medium text-emerald-400">
           ← Back
         </Link>
-        <h1 className="text-lg font-bold">Coach</h1>
+        <div className="flex items-center gap-1.5">
+          <span className="lf-glow h-2 w-2 rounded-full bg-emerald-400" />
+          <h1 className="text-lg font-bold">Coach</h1>
+        </div>
         <span className="w-10" />
       </div>
+      <p className="mt-0.5 text-center text-[11px] text-[#52525b]">
+        Reads and can fix your data — food, training, streak, rank
+      </p>
 
       <div className="mt-4 flex-1 space-y-3 overflow-y-auto pb-2">
         {messages.map((m, i) => (
           <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
             <div
               className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm ${
-                m.role === "user" ? "bg-emerald-500 text-black" : "border border-zinc-800 bg-zinc-900 text-zinc-200"
+                m.role === "user"
+                  ? "bg-emerald-500 text-black"
+                  : "lf-ai-aura border-none bg-zinc-900 text-zinc-200"
               }`}
             >
               {m.content}
@@ -80,7 +88,7 @@ export default function CoachPage() {
         ))}
         {sending && (
           <div className="flex justify-start">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-2.5 text-sm text-zinc-500">
+            <div className="lf-ai-aura rounded-2xl bg-zinc-900 px-4 py-2.5 text-sm text-zinc-500">
               Thinking...
             </div>
           </div>
@@ -103,14 +111,14 @@ export default function CoachPage() {
         </div>
       )}
 
-      <div className="flex shrink-0 gap-2 pb-[env(safe-area-inset-bottom)]">
+      <div className="lf-ai-aura flex shrink-0 gap-2 rounded-xl p-1 pb-[calc(env(safe-area-inset-bottom)+0.25rem)]">
         <input
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && send()}
           placeholder="Ask about food, workouts, your goals..."
-          className="flex-1 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm placeholder-zinc-500 outline-none focus:border-emerald-500"
+          className="flex-1 rounded-lg border-none bg-zinc-900 px-4 py-3 text-sm placeholder-zinc-500 outline-none"
         />
         <button
           onClick={() => send()}

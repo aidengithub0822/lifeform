@@ -132,7 +132,7 @@ export default async function HomePage() {
             Nothing logged yet today.
             <br />
             <Link href="/scan" className="mt-2 inline-block font-semibold text-emerald-400">
-              Scan your first meal →
+              Log food →
             </Link>
           </div>
         )}
@@ -156,6 +156,24 @@ export default async function HomePage() {
       )}
 
       <WeeklyTrends days={dayTotals} calorieTarget={goal.calorie_target} />
+
+      <div className="mt-7 grid grid-cols-2 gap-3">
+        <Link
+          href="/recipes"
+          className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#27272a] bg-[#111113] py-4 text-center active:scale-[0.98]"
+        >
+          <span className="text-sm font-semibold text-[#e4e4e7]">Recipes</span>
+          <span className="text-xs text-[#71717a]">Saved recipes you can log in one tap</span>
+        </Link>
+        <Link
+          href="/discover"
+          className="flex flex-col items-center justify-center gap-1 rounded-2xl border border-[#27272a] bg-[#111113] py-4 text-center active:scale-[0.98]"
+        >
+          <span className="text-sm font-semibold text-[#e4e4e7]">Meal ideas</span>
+          <span className="text-xs text-[#71717a]">Budget-aware picks + places to eat</span>
+        </Link>
+      </div>
+
       <div className="pb-8" />
     </div>
     </RefreshOnPull>

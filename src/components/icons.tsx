@@ -68,6 +68,18 @@ export function SendIcon({ className }: { className?: string }) {
   );
 }
 
+export function MessageIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={className}>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v7a2.5 2.5 0 0 1-2.5 2.5H9l-4.5 4v-4H6.5A2.5 2.5 0 0 1 4 13.5Z"
+      />
+    </svg>
+  );
+}
+
 export function ChevronIcon({ className, direction = "left" }: { className?: string; direction?: "left" | "right" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className={className}>
