@@ -36,13 +36,15 @@ export default async function HomePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: goal } = await supabase
-    .from("goals")
-    .select("*")
-    .eq("user_id", user.id)
-    .maybeSingle<Goal>();
+  const [{ data: goal }, { data: profile }] = await Promise.all([
+    supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle<Goal>(),
+    supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle<{ username: string | null }>(),
+  ]);
 
-  if (!goal) redirect("/onboarding");
+  // Username is a forced gate for every account (new or pre-existing) —
+  // checked ahead of the goal check since onboarding's own first step is
+  // now the username picker.
+  if (!profile?.username || !goal) redirect("/onboarding");
 
   const { start, end } = todayRangeUTC();
   const weekDays = last7Days();
@@ -85,8 +87,15 @@ export default async function HomePage() {
   return (
     <RefreshOnPull>
     <div className="mx-auto max-w-md px-5 pt-6">
-      <div className="flex items-center justify-between">
+      <div className="relative flex items-center justify-between">
         <HeaderMenu goal={goal} />
+        {/* Static wordmark, dead center — not a button. Settings moved to
+            the gear icon on the left (see HeaderMenu) so this can just be
+            the app's logo instead of doubling as an easy-to-fat-finger menu
+            trigger. */}
+        <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-lg font-extrabold lowercase tracking-tight text-emerald-400">
+          lifeform
+        </span>
         <Flame />
       </div>
 

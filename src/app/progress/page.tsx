@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImageForUpload } from "@/lib/imageUpload";
 import PullToRefresh from "@/components/PullToRefresh";
@@ -50,6 +50,21 @@ export default function ProgressPage() {
   const [journalSaving, setJournalSaving] = useState(false);
   const [journalError, setJournalError] = useState<string | null>(null);
   const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+  const [backfillTotal, setBackfillTotal] = useState(0);
+  const [backfillDone, setBackfillDone] = useState(0);
+  const backfillStarted = useRef(false);
+
+  async function analyzeOnePhoto(photoId: string) {
+    try {
+      await fetch("/api/progress-photos/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoId }),
+      });
+    } catch {
+      // best-effort — the photo itself already saved fine either way
+    }
+  }
 
   async function load() {
     const [{ data: m }, { data: p }, { data: j }] = await Promise.all([
@@ -80,6 +95,33 @@ export default function ProgressPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Backfill: photos uploaded before the AI analysis feature existed (or any
+  // that failed to analyze at upload time) never got a score. Run through
+  // them once, oldest-first per angle so each comparison chains off the
+  // right prior photo, so opening this page after the feature ships gives
+  // an immediate result on everything already uploaded instead of leaving
+  // old photos permanently blank. Guarded by a ref (not state) so re-renders
+  // from `load()` calls inside the loop itself don't restart it.
+  useEffect(() => {
+    if (backfillStarted.current || photos.length === 0) return;
+    const unanalyzed = [...photos].filter((p) => !p.ai_analyzed_at).sort((a, b) => a.taken_at.localeCompare(b.taken_at));
+    if (unanalyzed.length === 0) return;
+    backfillStarted.current = true;
+    (async () => {
+      setBackfillTotal(unanalyzed.length);
+      setBackfillDone(0);
+      for (const p of unanalyzed) {
+        setAnalyzingId(p.id);
+        await analyzeOnePhoto(p.id);
+        setBackfillDone((d) => d + 1);
+        await load();
+      }
+      setAnalyzingId(null);
+      fetch("/api/rank", { method: "POST" }).catch(() => {});
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [photos]);
 
   async function logMeasurement() {
     setSaving(true);
@@ -344,6 +386,11 @@ export default function ProgressPage() {
 
       <div className="mt-7">
         <p className="text-sm font-semibold text-[#e4e4e7]">Progress photos</p>
+        {backfillTotal > 0 && backfillDone < backfillTotal && (
+          <p className="mt-1.5 text-xs text-emerald-400">
+            Analyzing your earlier photos with AI… ({backfillDone}/{backfillTotal})
+          </p>
+        )}
         <div className="mt-3 mb-3 flex gap-2">
           {(["front", "side", "back"] as Angle[]).map((a) => (
             <button

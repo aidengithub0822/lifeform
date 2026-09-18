@@ -7,6 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import UserLink from "@/components/UserLink";
 import PushOptIn from "@/components/PushOptIn";
 import FindPeople from "@/components/FindPeople";
+import { GearIcon } from "@/components/icons";
 import type { Feedback, Goal } from "@/lib/types";
 
 type Tab = "settings" | "info" | "feedback";
@@ -207,11 +208,16 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
 
   return (
     <>
+      {/* Settings entry point — moved here from the "lifeform" wordmark
+          (that's now a static, non-interactive logo centered up top; see
+          HomePage) so tapping it doesn't feel like an accidental menu
+          trigger anymore. */}
       <button
         onClick={openMenu}
-        className="lf-glow lf-shine flex items-center gap-1.5 rounded-full border border-emerald-500/40 bg-zinc-900 px-3.5 py-1.5 text-lg font-extrabold lowercase tracking-tight text-emerald-400 active:scale-95"
+        aria-label="Settings"
+        className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-800 bg-zinc-900 text-zinc-300 active:scale-95"
       >
-        lifeform
+        <GearIcon className="h-[18px] w-[18px]" />
       </button>
 
       {open && (

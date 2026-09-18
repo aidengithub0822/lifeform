@@ -112,20 +112,43 @@ leftover conventions in this file make sense.
   history list underneath that always shows (this was a real bug: it used to
   only show the chart, so a single log looked like nothing saved). Also
   progress photos by angle (front/side/back), same camera/library split as
-  `/scan`.
+  `/scan` — each photo gets a one-time AI vision pass right after upload
+  (`/api/progress-photos/analyze`, logic shared via
+  `src/lib/progressPhotoAnalysis.ts`): a 0-100 leanness/definition score
+  plus a written comparison against the prior analyzed photo of the same
+  angle, stored on `progress_photos.ai_leanness_score`/`ai_summary`. The
+  page also runs a one-time backfill on load for any pre-existing photos
+  that predate the feature (or failed to analyze), oldest-first per angle so
+  the comparison chain stays correct, with a small progress indicator while
+  it runs. That score feeds `validatedPhotoLeanGainPct` in `rank.ts` (see
+  Rank system below) and Coach's context.
 - **`/discover`** — AI food recommendations ranked by budget tier
   (budget/moderate/splurge), goal-phase-aware
   (`/api/recommend-foods`, GET, no input needed); plus a town text field that
   gets AI restaurant/order suggestions (`/api/recommend-places`, POST). This
   is general AI knowledge, not a live places API — deliberately, per user
   choice, to avoid needing a Google Places key.
-- **`/coach`** — a chat UI backed by `/api/coach`, using the same
-  `ANTHROPIC_API_KEY` as everything else (no separate Anthropic sign-in —
-  originally requested, then explicitly descoped by the user in favor of
-  reusing the app's key). The system prompt hard-restricts it to
-  nutrition/fitness/app topics and declines anything else, and it's fed the
-  user's actual goal + logged weight history/trend so progress questions get
-  grounded answers instead of generic ones.
+- **`/coach`** — the app's most important feature, deliberately the CENTER
+  bottom-nav tab (see `BottomNav.tsx`). A chat UI backed by `/api/coach`,
+  using the same `ANTHROPIC_API_KEY` as everything else (no separate
+  Anthropic sign-in — originally requested, then explicitly descoped by the
+  user in favor of reusing the app's key). The system prompt hard-restricts
+  it to nutrition/fitness/app topics and declines anything else, and it's
+  fed the user's actual goal, logged weight history (with row ids), recent
+  food logs (with row ids), streak/XP state, training plan, lift history,
+  per-muscle and overall rank, and progress-photo AI analysis — grounded
+  answers, not generic ones. It's also **agentic**: `/api/coach/route.ts`
+  runs a real tool-use loop (up to 6 rounds) with tools that read/write this
+  one signed-in user's own rows — `update_measurement`/`add_measurement`/
+  `delete_measurement`, `update_food_log`/`delete_food_log`, `shift_dates`
+  (bulk date-shift one table by N days — for a systemic bug like "the app
+  logged everything a day ahead"), `adjust_streak` (manual streak/XP
+  correction), `set_rank` (manual rank-tier override, via the service-role
+  client since `profiles.rank` is locked the same way `/api/rank` is), and
+  `reanalyze_photo` (re-runs `analyzeProgressPhoto()` from
+  `src/lib/progressPhotoAnalysis.ts` on one photo). When a user describes a
+  data problem, Coach is instructed to actually fix it with these tools and
+  say what it changed, not just explain the issue.
 - **`/fitness`** — male/female body diagram toggle (user-supplied images in
   `public/fitness/`, compressed to JPEG), tap a muscle-group category to see
   a curated workout list from the static catalog in
@@ -139,11 +162,23 @@ leftover conventions in this file make sense.
   is a token-gated endpoint (uses the Supabase service-role admin client in
   `src/lib/supabase/admin.ts`) so an iOS Scriptable home-screen widget can
   read streak state without a full user session.
-- **HeaderMenu** (`src/components/HeaderMenu.tsx`) — tapping the "lifeform"
-  wordmark opens a bottom sheet with Settings / Help & info / Comments tabs.
-  Comments is a lightweight public feedback wall (`/api/feedback`,
-  `feedback` table) — anyone signed in can read all comments, only post as
-  themselves.
+- **HeaderMenu** (`src/components/HeaderMenu.tsx`) — a gear icon in the
+  Home tab's upper-left opens a bottom sheet with Settings / Help & info /
+  Comments tabs. The "lifeform" wordmark itself now lives dead-center in
+  that same header row as a static, non-interactive logo (see `page.tsx`'s
+  home page) — it used to be the settings trigger, but that made it too easy
+  to open the menu by accident when reaching for something else. Comments is
+  a lightweight public feedback wall (`/api/feedback`, `feedback` table) —
+  anyone signed in can read all comments, only post as themselves.
+- **Forced username onboarding**: every account (new signups AND
+  pre-existing accounts that never set one) must have `profiles.username`
+  before using the app. `/onboarding/page.tsx`'s first step is now
+  `"username"` (checked on mount; skipped straight to `"intro"` if already
+  set), `/` and `/profile` redirect server-side to `/onboarding` when it's
+  missing, and `src/components/UsernameGate.tsx` (mounted in
+  `layout.tsx`) is a client-side backstop that redirects from ANY other
+  route for a signed-in user with no username (covers deep links that skip
+  both server checks).
 - **Visual style**: Uiverse.io-inspired but hand-authored CSS in
   `src/app/globals.css` — `.lf-glow` (pulsing box-shadow), `.lf-gradient-border`
   (rotating `conic-gradient` border via `@property --lf-angle`), `.lf-shine`

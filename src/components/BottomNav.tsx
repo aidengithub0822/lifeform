@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-// Five predictable destinations, per the IA redesign: Home (today's
-// snapshot), Train (log food + workout + plan/ideas), Social (community,
-// messages, find people), Progress (weight/photos/trends), Profile (your
-// public identity + account). Scan/Recipes/Community used to each get their
-// own top-level tab — they now live inside Train/Social so the bottom nav
-// answers "where does X live" without growing past five items.
+// Five predictable destinations: Home (today's snapshot), Train (log food +
+// workout + plan/ideas), Coach (the AI — deliberately the CENTER tab, since
+// it's the app's most important feature and now has real read/write access
+// to your data, not just chat), Progress (weight/photos/trends), Profile
+// (your public identity + account, which now also links out to
+// Community/Messages at its top). Scan/Recipes/Community used to each get
+// their own top-level tab — they now live inside Train/Profile so the
+// bottom nav answers "where does X live" without growing past five items.
 // Inline stroke icons, matching the app's design system (no emoji in the UI chrome).
 function HomeIcon() {
   return (
@@ -25,11 +27,11 @@ function TrainIcon() {
     </svg>
   );
 }
-function SocialIcon() {
+function CoachIcon() {
   return (
-    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="9" />
-      <path d="M3 12h18M12 3c2.5 2.5 2.5 15.5 0 18M12 3c-2.5 2.5-2.5 15.5 0 18" />
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Z" />
+      <path d="M6 12v1a6 6 0 0 0 12 0v-1M12 19v3M9 22h6" />
     </svg>
   );
 }
@@ -55,11 +57,16 @@ const tabs = [
     href: "/train",
     label: "Train",
     Icon: TrainIcon,
-    matches: ["/train", "/scan", "/fitness", "/recipes", "/discover", "/coach"],
+    matches: ["/train", "/scan", "/fitness", "/recipes", "/discover"],
   },
-  { href: "/social", label: "Social", Icon: SocialIcon, matches: ["/social", "/community", "/messages"] },
+  { href: "/coach", label: "Coach", Icon: CoachIcon, matches: ["/coach"] },
   { href: "/progress", label: "Progress", Icon: ProgressIcon, matches: ["/progress"] },
-  { href: "/profile", label: "Profile", Icon: ProfileIcon, matches: ["/profile"] },
+  {
+    href: "/profile",
+    label: "Profile",
+    Icon: ProfileIcon,
+    matches: ["/profile", "/social", "/community", "/messages"],
+  },
 ];
 
 export default function BottomNav() {
@@ -80,6 +87,7 @@ export default function BottomNav() {
             m === "/" ? pathname === "/" : pathname === m || pathname.startsWith(m + "/")
           );
           const Icon = tab.Icon;
+          const isCoach = tab.href === "/coach";
           return (
             <Link
               key={tab.href}
@@ -88,7 +96,19 @@ export default function BottomNav() {
                 active ? "text-[#10b981] font-semibold" : "text-[#52525b]"
               }`}
             >
-              <Icon />
+              {isCoach ? (
+                <span
+                  className={`lf-glow -mt-5 flex h-11 w-11 items-center justify-center rounded-full border ${
+                    active
+                      ? "border-emerald-400 bg-emerald-500 text-black"
+                      : "border-emerald-500/50 bg-zinc-900 text-emerald-400"
+                  }`}
+                >
+                  <Icon />
+                </span>
+              ) : (
+                <Icon />
+              )}
               {tab.label}
             </Link>
           );

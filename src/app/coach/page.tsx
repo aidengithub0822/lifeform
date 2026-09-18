@@ -12,13 +12,15 @@ const STARTER_PROMPTS = [
   "What should I eat before a workout?",
   "How's my progress toward my goal?",
   "Give me a quick shoulder workout",
+  "One of my log dates looks wrong — can you fix it?",
 ];
 
 export default function CoachPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content: "Hey — I'm your Coach. Ask me about nutrition, workouts, or your goals in this app.",
+      content:
+        "Hey — I'm your Coach. Ask me about nutrition, workouts, or your goals, or tell me if something in your data looks wrong (a bad date, a weird streak number, a photo score that doesn't look right) — I can fix it directly, not just explain it.",
     },
   ]);
   const [input, setInput] = useState("");

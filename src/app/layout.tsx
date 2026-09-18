@@ -3,6 +3,7 @@ import "./globals.css";
 import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import Splash from "@/components/Splash";
+import UsernameGate from "@/components/UsernameGate";
 
 export const metadata: Metadata = {
   title: "lifeform scanner",
@@ -39,6 +40,7 @@ export default function RootLayout({
       <body className="min-h-dvh bg-zinc-950 pb-20 pt-[max(env(safe-area-inset-top),20px)] text-white antialiased">
         <ServiceWorkerRegister />
         <Splash />
+        <UsernameGate />
         {children}
         <BottomNav />
       </body>

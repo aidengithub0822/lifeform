@@ -2,6 +2,19 @@
 // profile posts, photo lightbox) in place of emoji, for a flatter, more
 // consistent look. All take a `className` for sizing/color via currentColor.
 
+export function GearIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M19.4 13a7.97 7.97 0 0 0 0-2l2-1.5-2-3.5-2.4.6a8 8 0 0 0-1.7-1L15 3h-4l-.3 2.6a8 8 0 0 0-1.7 1l-2.4-.6-2 3.5L6.6 11a7.97 7.97 0 0 0 0 2l-2 1.5 2 3.5 2.4-.6a8 8 0 0 0 1.7 1L11 21h4l.3-2.6a8 8 0 0 0 1.7-1l2.4.6 2-3.5-2-1.5Z"
+      />
+    </svg>
+  );
+}
+
 export function HeartIcon({ className, filled }: { className?: string; filled?: boolean }) {
   return (
     <svg viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={1.8} className={className}>

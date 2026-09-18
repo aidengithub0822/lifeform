@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -27,13 +27,64 @@ export default function OnboardingPage() {
   const router = useRouter();
   const supabase = createClient();
 
-  // Lightweight personalization step before the targets form — this is
-  // presentation-only for now (nothing new to persist without a schema
-  // change, which is out of scope for this pass), but it sets the tone
-  // that Lifeform is more than a calorie tracker right from the first
-  // screen after signup, and primes the phase picker below it.
-  const [step, setStep] = useState<"intro" | "targets">("intro");
+  // "username" is a forced gate — every account needs a unique handle
+  // before it can do anything else in the app (community/comments/messages
+  // all key off it), so it runs FIRST, ahead of the goal-setting steps
+  // below. checkingUsername starts true so we don't flash the goal flow
+  // for a split second before we know whether a username is already set.
+  const [step, setStep] = useState<"username" | "intro" | "targets">("username");
+  const [checkingUsername, setCheckingUsername] = useState(true);
+  const [usernameInput, setUsernameInput] = useState("");
+  const [savingUsername, setSavingUsername] = useState(false);
+  const [usernameError, setUsernameError] = useState<string | null>(null);
   const [selectedGoal, setSelectedGoal] = useState<(typeof GOALS)[number]["key"] | null>(null);
+
+  useEffect(() => {
+    async function checkUsername() {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        setCheckingUsername(false);
+        return;
+      }
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("username")
+        .eq("user_id", user.id)
+        .maybeSingle<{ username: string | null }>();
+      if (profile?.username) setStep("intro");
+      setCheckingUsername(false);
+    }
+    checkUsername();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function saveUsername() {
+    const next = usernameInput.trim();
+    if (!next) return;
+    setSavingUsername(true);
+    setUsernameError(null);
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      setUsernameError("Not signed in");
+      setSavingUsername(false);
+      return;
+    }
+    const { error } = await supabase.from("profiles").upsert({ user_id: user.id, username: next });
+    setSavingUsername(false);
+    if (error) {
+      setUsernameError(
+        error.message.includes("duplicate") || error.message.includes("unique")
+          ? "That username is already taken — try another"
+          : error.message
+      );
+      return;
+    }
+    setStep("intro");
+  }
 
   const [weight, setWeight] = useState(140);
   const [height, setHeight] = useState(72);
@@ -77,6 +128,38 @@ export default function OnboardingPage() {
     }
     router.push("/");
     router.refresh();
+  }
+
+  if (step === "username") {
+    if (checkingUsername) return null;
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-10">
+        <h1 className="text-2xl font-bold">Pick a username</h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          This is how you&apos;ll show up in Community, comments, and messages — pick one before you dive in.
+        </p>
+
+        <div className="mt-6 space-y-3">
+          <input
+            type="text"
+            value={usernameInput}
+            onChange={(e) => setUsernameInput(e.target.value.replace(/\s+/g, ""))}
+            placeholder="Your username"
+            maxLength={24}
+            autoFocus
+            className="w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm outline-none focus:border-emerald-500"
+          />
+          {usernameError && <p className="text-sm text-red-400">{usernameError}</p>}
+          <button
+            onClick={saveUsername}
+            disabled={savingUsername || !usernameInput.trim()}
+            className="w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-40"
+          >
+            {savingUsername ? "Saving..." : "Continue"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (step === "intro") {

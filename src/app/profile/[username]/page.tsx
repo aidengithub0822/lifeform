@@ -331,9 +331,21 @@ export default function ProfilePage() {
   return (
     <PullToRefresh onRefresh={load}>
     <div className="mx-auto max-w-md px-5 py-8">
-      <Link href="/" className="text-sm font-medium text-emerald-400">
-        ← Back
-      </Link>
+      <div className="flex items-center justify-between">
+        <Link href="/" className="text-sm font-medium text-emerald-400">
+          ← Back
+        </Link>
+        {isOwn && (
+          <div className="flex gap-2">
+            <Link href="/community" className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 active:opacity-70">
+              Community
+            </Link>
+            <Link href="/messages" className="rounded-full bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-300 active:opacity-70">
+              Messages
+            </Link>
+          </div>
+        )}
+      </div>
 
       {/* Header: avatar + stats row, Instagram-style */}
       <div className="mt-4 flex items-center gap-5">
