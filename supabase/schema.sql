@@ -267,6 +267,81 @@ create index if not exists messages_recipient_time_idx on public.messages (recip
 -- Existing installs: a message can now be a photo instead of (or with) text.
 alter table public.messages alter column body drop not null;
 alter table public.messages add column if not exists photo_url text;
+
+-- Group chats. Kept as its own separate model from the 1:1 `messages` table
+-- above rather than retrofitting it — the existing DM system is pairwise by
+-- design (sender_id/recipient_id, no thread id) and works fine as-is; adding
+-- an N-participant concept to it would mean migrating every existing row.
+-- A `conversations` row with is_group = false isn't used today (every DM
+-- still goes through `messages`) but the shape allows for it later.
+create table if not exists public.conversations (
+  id uuid primary key default gen_random_uuid(),
+  is_group boolean not null default true,
+  name text,
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists public.conversation_participants (
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  is_admin boolean not null default false,
+  joined_at timestamptz not null default now(),
+  primary key (conversation_id, user_id)
+);
+create index if not exists conversation_participants_user_idx on public.conversation_participants (user_id);
+
+create table if not exists public.conversation_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  sender_id uuid not null references auth.users(id) on delete cascade,
+  sender_username text,
+  body text,
+  photo_url text,
+  created_at timestamptz not null default now()
+);
+create index if not exists conversation_messages_conv_time_idx on public.conversation_messages (conversation_id, created_at asc);
+
+-- One row per (conversation, member) tracking how far that member has read —
+-- lets every message show "seen by so-and-so" rather than a single
+-- sender/recipient read_at like the 1:1 messages table has.
+create table if not exists public.conversation_reads (
+  conversation_id uuid not null references public.conversations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  last_read_at timestamptz not null default now(),
+  primary key (conversation_id, user_id)
+);
+
+-- Membership-check helpers, SECURITY DEFINER so they bypass RLS on
+-- conversation_participants themselves — needed because several policies
+-- below (including conversation_participants' own SELECT policy) would
+-- otherwise have to subquery the very table they're guarding, which is the
+-- classic self-referential-RLS footgun.
+create or replace function public.is_conversation_participant(conv_id uuid, uid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.conversation_participants
+    where conversation_id = conv_id and user_id = uid
+  );
+$$;
+
+create or replace function public.is_conversation_admin(conv_id uuid, uid uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from public.conversation_participants
+    where conversation_id = conv_id and user_id = uid and is_admin = true
+  );
+$$;
 -- Read receipts: set by the recipient (via an update they're allowed to make
 -- under the existing "owner_all"-style policy below, restricted to rows
 -- addressed to them) the moment they open the thread.
@@ -426,6 +501,25 @@ create table if not exists public.photo_comments (
 );
 create index if not exists photo_comments_photo_time_idx on public.photo_comments (photo_id, created_at asc);
 
+-- Likes on a community post/comment — same shape as photo_likes.
+create table if not exists public.community_post_likes (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references public.community_posts(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (post_id, user_id)
+);
+create index if not exists community_post_likes_post_idx on public.community_post_likes (post_id);
+
+create table if not exists public.community_comment_likes (
+  id uuid primary key default gen_random_uuid(),
+  comment_id uuid not null references public.community_comments(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (comment_id, user_id)
+);
+create index if not exists community_comment_likes_comment_idx on public.community_comment_likes (comment_id);
+
 -- Row Level Security: every table is private to its own user.
 alter table public.goals enable row level security;
 alter table public.food_logs enable row level security;
@@ -443,11 +537,17 @@ alter table public.profile_photos enable row level security;
 alter table public.messages enable row level security;
 alter table public.community_comments enable row level security;
 alter table public.photo_likes enable row level security;
+alter table public.community_post_likes enable row level security;
+alter table public.community_comment_likes enable row level security;
 alter table public.photo_comments enable row level security;
 alter table public.follows enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.lift_muscles enable row level security;
 alter table public.training_plans enable row level security;
+alter table public.conversations enable row level security;
+alter table public.conversation_participants enable row level security;
+alter table public.conversation_messages enable row level security;
+alter table public.conversation_reads enable row level security;
 
 do $$
 declare
@@ -552,6 +652,33 @@ drop policy if exists "photo_comments_delete_own" on public.photo_comments;
 create policy "photo_comments_delete_own" on public.photo_comments
   for delete using (auth.uid() = user_id);
 
+-- community_post_likes / community_comment_likes: same shape as
+-- photo_likes — anyone signed in can see who liked what (for counts),
+-- but you can only like/unlike as yourself.
+drop policy if exists "community_post_likes_select_all" on public.community_post_likes;
+create policy "community_post_likes_select_all" on public.community_post_likes
+  for select using (auth.uid() is not null);
+
+drop policy if exists "community_post_likes_insert_own" on public.community_post_likes;
+create policy "community_post_likes_insert_own" on public.community_post_likes
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "community_post_likes_delete_own" on public.community_post_likes;
+create policy "community_post_likes_delete_own" on public.community_post_likes
+  for delete using (auth.uid() = user_id);
+
+drop policy if exists "community_comment_likes_select_all" on public.community_comment_likes;
+create policy "community_comment_likes_select_all" on public.community_comment_likes
+  for select using (auth.uid() is not null);
+
+drop policy if exists "community_comment_likes_insert_own" on public.community_comment_likes;
+create policy "community_comment_likes_insert_own" on public.community_comment_likes
+  for insert with check (auth.uid() = user_id);
+
+drop policy if exists "community_comment_likes_delete_own" on public.community_comment_likes;
+create policy "community_comment_likes_delete_own" on public.community_comment_likes
+  for delete using (auth.uid() = user_id);
+
 -- follows: anyone signed in can see who follows whom (needed for follower/
 -- following counts on a profile), but you can only follow/unfollow as
 -- yourself.
@@ -620,12 +747,103 @@ create trigger lock_message_read_receipt
   before update on public.messages
   for each row execute function public.lock_message_read_receipt();
 
+-- conversations: only participants can see a group; creating one is open to
+-- any signed-in user (they're always the first participant added in the
+-- same request); renaming/deleting is admin-only.
+drop policy if exists "conversations_select_participant" on public.conversations;
+create policy "conversations_select_participant" on public.conversations
+  for select using (public.is_conversation_participant(id, auth.uid()));
+
+drop policy if exists "conversations_insert_own" on public.conversations;
+create policy "conversations_insert_own" on public.conversations
+  for insert with check (auth.uid() = created_by);
+
+drop policy if exists "conversations_update_admin" on public.conversations;
+create policy "conversations_update_admin" on public.conversations
+  for update using (public.is_conversation_admin(id, auth.uid()))
+  with check (public.is_conversation_admin(id, auth.uid()));
+
+drop policy if exists "conversations_delete_admin" on public.conversations;
+create policy "conversations_delete_admin" on public.conversations
+  for delete using (public.is_conversation_admin(id, auth.uid()));
+
+-- conversation_participants: a member can see every other member of a group
+-- they're in (needed to render the member list). Adding a member is allowed
+-- for the group's creator (covers the very first insert, when no admin row
+-- exists yet) or an existing admin; removing a member is allowed for that
+-- member themselves (leaving) or an admin (kicking); only an admin can flip
+-- is_admin on someone.
+drop policy if exists "conversation_participants_select_member" on public.conversation_participants;
+create policy "conversation_participants_select_member" on public.conversation_participants
+  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
+
+drop policy if exists "conversation_participants_insert_admin" on public.conversation_participants;
+create policy "conversation_participants_insert_admin" on public.conversation_participants
+  for insert with check (
+    public.is_conversation_admin(conversation_id, auth.uid())
+    or exists (
+      select 1 from public.conversations c
+      where c.id = conversation_id and c.created_by = auth.uid()
+    )
+  );
+
+drop policy if exists "conversation_participants_delete_self_or_admin" on public.conversation_participants;
+create policy "conversation_participants_delete_self_or_admin" on public.conversation_participants
+  for delete using (
+    auth.uid() = user_id or public.is_conversation_admin(conversation_id, auth.uid())
+  );
+
+drop policy if exists "conversation_participants_update_admin" on public.conversation_participants;
+create policy "conversation_participants_update_admin" on public.conversation_participants
+  for update using (public.is_conversation_admin(conversation_id, auth.uid()))
+  with check (public.is_conversation_admin(conversation_id, auth.uid()));
+
+-- conversation_messages: only participants can read/send; you can only ever
+-- delete your own message.
+drop policy if exists "conversation_messages_select_member" on public.conversation_messages;
+create policy "conversation_messages_select_member" on public.conversation_messages
+  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
+
+drop policy if exists "conversation_messages_insert_member" on public.conversation_messages;
+create policy "conversation_messages_insert_member" on public.conversation_messages
+  for insert with check (
+    auth.uid() = sender_id and public.is_conversation_participant(conversation_id, auth.uid())
+  );
+
+drop policy if exists "conversation_messages_delete_own" on public.conversation_messages;
+create policy "conversation_messages_delete_own" on public.conversation_messages
+  for delete using (auth.uid() = sender_id);
+
+-- conversation_reads: every member can see everyone's read marker (needed
+-- for "seen by ..." under a message), but you can only ever write your own.
+drop policy if exists "conversation_reads_select_member" on public.conversation_reads;
+create policy "conversation_reads_select_member" on public.conversation_reads
+  for select using (public.is_conversation_participant(conversation_id, auth.uid()));
+
+drop policy if exists "conversation_reads_upsert_own" on public.conversation_reads;
+create policy "conversation_reads_upsert_own" on public.conversation_reads
+  for insert with check (
+    auth.uid() = user_id and public.is_conversation_participant(conversation_id, auth.uid())
+  );
+
+drop policy if exists "conversation_reads_update_own" on public.conversation_reads;
+create policy "conversation_reads_update_own" on public.conversation_reads
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- Enable Realtime (live updates without refreshing) for the messages table.
 -- Safe to re-run: adding a table that's already in the publication just
 -- raises a notice, which this block swallows.
 do $$
 begin
   execute 'alter publication supabase_realtime add table public.messages';
+exception
+  when duplicate_object then null;
+  when undefined_object then null;
+end $$;
+
+do $$
+begin
+  execute 'alter publication supabase_realtime add table public.conversation_messages';
 exception
   when duplicate_object then null;
   when undefined_object then null;

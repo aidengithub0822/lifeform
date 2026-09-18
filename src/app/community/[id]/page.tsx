@@ -9,7 +9,7 @@ import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
 import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
-import { ChevronIcon, ShareIcon } from "@/components/icons";
+import { ChevronIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
 
 interface ThreadProps {
@@ -173,6 +173,9 @@ export default function CommunityThreadPage() {
   const [loading, setLoading] = useState(true);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [likeCount, setLikeCount] = useState(0);
+  const [likedByMe, setLikedByMe] = useState(false);
+  const [likeBusy, setLikeBusy] = useState(false);
 
   const [reply, setReply] = useState("");
   const [posting, setPosting] = useState(false);
@@ -180,9 +183,16 @@ export default function CommunityThreadPage() {
 
   async function load() {
     setLoading(true);
-    const [postRes, commentsRes] = await Promise.all([
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const [postRes, commentsRes, { count: likes }, myLikeRes] = await Promise.all([
       supabase.from("community_posts").select("*").eq("id", postId).maybeSingle(),
       fetch(`/api/community/${postId}/comments`).then((r) => r.json()),
+      supabase.from("community_post_likes").select("id", { count: "exact", head: true }).eq("post_id", postId),
+      user
+        ? supabase.from("community_post_likes").select("id").eq("post_id", postId).eq("user_id", user.id).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
     const p = postRes.data as CommunityPost | null;
     if (!p) {
@@ -191,6 +201,8 @@ export default function CommunityThreadPage() {
       return;
     }
     setPost(p);
+    setLikeCount(likes ?? 0);
+    setLikedByMe(!!myLikeRes.data);
     const items: CommunityComment[] = commentsRes.items ?? [];
     setComments(items);
 
@@ -253,6 +265,19 @@ export default function CommunityThreadPage() {
     } finally {
       setPosting(false);
     }
+  }
+
+  async function toggleLike() {
+    if (!myUserId || likeBusy || !post) return;
+    setLikeBusy(true);
+    if (likedByMe) {
+      await supabase.from("community_post_likes").delete().eq("post_id", post.id).eq("user_id", myUserId);
+    } else {
+      await supabase.from("community_post_likes").insert({ post_id: post.id, user_id: myUserId });
+    }
+    setLikedByMe(!likedByMe);
+    setLikeCount((c) => c + (likedByMe ? -1 : 1));
+    setLikeBusy(false);
   }
 
   async function deleteOwnComment(id: string) {
@@ -339,6 +364,14 @@ export default function CommunityThreadPage() {
             <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-2xl object-cover" />
           )}
           <div className="mt-3 flex items-center gap-4">
+            <button
+              onClick={toggleLike}
+              disabled={!myUserId || likeBusy}
+              className={`flex items-center gap-1.5 active:opacity-60 ${likedByMe ? "text-red-400" : "text-zinc-500"}`}
+            >
+              <HeartIcon className="h-[18px] w-[18px]" filled={likedByMe} />
+              {likeCount > 0 && <span className="text-xs font-medium">{likeCount}</span>}
+            </button>
             <button onClick={share} className="text-zinc-500 active:opacity-60">
               <ShareIcon className="h-[18px] w-[18px]" />
             </button>

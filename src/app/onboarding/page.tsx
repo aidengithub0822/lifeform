@@ -39,6 +39,13 @@ export default function OnboardingPage() {
   const [usernameError, setUsernameError] = useState<string | null>(null);
   const [selectedGoal, setSelectedGoal] = useState<(typeof GOALS)[number]["key"] | null>(null);
 
+  const [weight, setWeight] = useState(140);
+  const [height, setHeight] = useState(72);
+  const [phase, setPhase] = useState<GoalPhase>("bulk");
+  const [weeklyRate, setWeeklyRate] = useState(0.75);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
   useEffect(() => {
     async function checkUsername() {
       const {
@@ -48,12 +55,43 @@ export default function OnboardingPage() {
         setCheckingUsername(false);
         return;
       }
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("username")
-        .eq("user_id", user.id)
-        .maybeSingle<{ username: string | null }>();
-      if (profile?.username) setStep("intro");
+      const [{ data: profile }, { data: goal }] = await Promise.all([
+        supabase
+          .from("profiles")
+          .select("username")
+          .eq("user_id", user.id)
+          .maybeSingle<{ username: string | null }>(),
+        supabase
+          .from("goals")
+          .select("phase, current_weight_lb, height_in, weekly_rate_lb")
+          .eq("user_id", user.id)
+          .maybeSingle<{
+            phase: GoalPhase;
+            current_weight_lb: number;
+            height_in: number;
+            weekly_rate_lb: number;
+          }>(),
+      ]);
+      if (!profile?.username) {
+        setCheckingUsername(false);
+        return;
+      }
+      if (goal) {
+        // Returning user opening this page to edit their targets (e.g. via
+        // Settings → "Edit goals") — they already answered "what brings you
+        // to Lifeform?" once, and that answer was never even saved anywhere,
+        // so re-asking it here served no purpose and was just annoying. Skip
+        // straight to the targets step, pre-filled with their actual saved
+        // goal instead of the fixed defaults, so editing doesn't quietly
+        // reset their numbers back to a lean-bulk starting point either.
+        setWeight(goal.current_weight_lb);
+        setHeight(goal.height_in);
+        setPhase(goal.phase);
+        setWeeklyRate(goal.weekly_rate_lb);
+        setStep("targets");
+      } else {
+        setStep("intro");
+      }
       setCheckingUsername(false);
     }
     checkUsername();
@@ -85,13 +123,6 @@ export default function OnboardingPage() {
     }
     setStep("intro");
   }
-
-  const [weight, setWeight] = useState(140);
-  const [height, setHeight] = useState(72);
-  const [phase, setPhase] = useState<GoalPhase>("bulk");
-  const [weeklyRate, setWeeklyRate] = useState(0.75);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const maintenance = estimateMaintenanceCalories(weight, height);
   const calorieTarget = calorieTargetForPhase(maintenance, phase, weeklyRate);

@@ -166,6 +166,31 @@ export interface Message {
   created_at: string;
 }
 
+export interface Conversation {
+  id: string;
+  is_group: boolean;
+  name: string | null;
+  created_by: string;
+  created_at: string;
+}
+
+export interface ConversationParticipant {
+  conversation_id: string;
+  user_id: string;
+  is_admin: boolean;
+  joined_at: string;
+}
+
+export interface ConversationMessage {
+  id: string;
+  conversation_id: string;
+  sender_id: string;
+  sender_username: string | null;
+  body: string | null;
+  photo_url: string | null;
+  created_at: string;
+}
+
 export interface JournalEntry {
   id: string;
   user_id: string;

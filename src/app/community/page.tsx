@@ -9,13 +9,16 @@ import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
 import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
-import { CameraIcon, CloseIcon, CommentIcon, ShareIcon } from "@/components/icons";
+import { CameraIcon, CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
   const supabase = createClient();
   const [posts, setPosts] = useState<CommunityPost[] | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+  const [myLikes, setMyLikes] = useState<Record<string, boolean>>({});
+  const [likeBusy, setLikeBusy] = useState<Record<string, boolean>>({});
   const [authors, setAuthors] = useState<Record<string, AuthorInfo>>({});
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState("");
@@ -40,17 +43,34 @@ export default function CommunityPage() {
         setPosts(items);
         if (items.length > 0) {
           const ids = [...new Set(items.map((p) => p.user_id))];
-          const [{ data: comments }, { data: profiles }] = await Promise.all([
+          const postIds = items.map((p) => p.id);
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+          const [{ data: comments }, { data: profiles }, { data: likes }, { data: myLikeRows }] = await Promise.all([
             supabase
               .from("community_comments")
               .select("post_id")
-              .in("post_id", items.map((p) => p.id))
+              .in("post_id", postIds)
               .returns<{ post_id: string }[]>(),
             supabase
               .from("profiles")
               .select("user_id, avatar_url, name_color, verified, rank")
               .in("user_id", ids)
               .returns<{ user_id: string; avatar_url: string | null; name_color: string | null; verified: boolean; rank: string }[]>(),
+            supabase
+              .from("community_post_likes")
+              .select("post_id")
+              .in("post_id", postIds)
+              .returns<{ post_id: string }[]>(),
+            user
+              ? supabase
+                  .from("community_post_likes")
+                  .select("post_id")
+                  .in("post_id", postIds)
+                  .eq("user_id", user.id)
+                  .returns<{ post_id: string }[]>()
+              : Promise.resolve({ data: [] as { post_id: string }[] }),
           ]);
           const counts: Record<string, number> = {};
           for (const c of comments ?? []) counts[c.post_id] = (counts[c.post_id] ?? 0) + 1;
@@ -59,6 +79,12 @@ export default function CommunityPage() {
           for (const p of profiles ?? [])
             authorMap[p.user_id] = { avatar_url: p.avatar_url, name_color: p.name_color, verified: p.verified, rank: p.rank };
           setAuthors(authorMap);
+          const lCounts: Record<string, number> = {};
+          for (const l of likes ?? []) lCounts[l.post_id] = (lCounts[l.post_id] ?? 0) + 1;
+          setLikeCounts(lCounts);
+          const mine: Record<string, boolean> = {};
+          for (const l of myLikeRows ?? []) mine[l.post_id] = true;
+          setMyLikes(mine);
         }
       }
     } finally {
@@ -137,6 +163,25 @@ export default function CommunityPage() {
     } finally {
       setPosting(false);
     }
+  }
+
+  async function toggleLike(postId: string) {
+    if (!myUserId || likeBusy[postId]) return;
+    const currentlyLiked = !!myLikes[postId];
+    setLikeBusy((b) => ({ ...b, [postId]: true }));
+    // Optimistic update — the count/heart flips immediately, then gets
+    // corrected if the request fails.
+    setMyLikes((m) => ({ ...m, [postId]: !currentlyLiked }));
+    setLikeCounts((c) => ({ ...c, [postId]: (c[postId] ?? 0) + (currentlyLiked ? -1 : 1) }));
+    const { error: likeError } = currentlyLiked
+      ? await supabase.from("community_post_likes").delete().eq("post_id", postId).eq("user_id", myUserId)
+      : await supabase.from("community_post_likes").insert({ post_id: postId, user_id: myUserId });
+    if (likeError) {
+      // Revert on failure.
+      setMyLikes((m) => ({ ...m, [postId]: currentlyLiked }));
+      setLikeCounts((c) => ({ ...c, [postId]: (c[postId] ?? 0) + (currentlyLiked ? 1 : -1) }));
+    }
+    setLikeBusy((b) => ({ ...b, [postId]: false }));
   }
 
   async function deleteOwn(id: string) {
@@ -290,6 +335,14 @@ export default function CommunityPage() {
 
                 {!isEditing && (
                   <div className="mt-2.5 flex items-center gap-4">
+                    <button
+                      onClick={() => toggleLike(post.id)}
+                      disabled={!myUserId}
+                      className={`flex items-center gap-1.5 active:opacity-60 ${myLikes[post.id] ? "text-red-400" : "text-zinc-500"}`}
+                    >
+                      <HeartIcon className="h-[18px] w-[18px]" filled={!!myLikes[post.id]} />
+                      {(likeCounts[post.id] ?? 0) > 0 && <span className="text-xs font-medium">{likeCounts[post.id]}</span>}
+                    </button>
                     <Link href={`/community/${post.id}`} className="flex items-center gap-1.5 text-zinc-500 active:opacity-60">
                       <CommentIcon className="h-[18px] w-[18px]" />
                       {replies > 0 && <span className="text-xs font-medium">{replies}</span>}

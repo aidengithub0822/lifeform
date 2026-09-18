@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { GROCERY_BOUNDS, clampPrice } from "@/lib/priceSanity";
 import type { Goal } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -24,12 +25,16 @@ const FOODS_TOOL = {
           properties: {
             food_name: { type: "string", description: "Specific food, e.g. 'Canned tuna' or 'Chicken thighs'" },
             budget_tier: { type: "string", enum: ["budget", "moderate", "splurge"] },
-            est_cost_per_serving: { type: "string", description: "Rough US price per serving, e.g. '$0.75-1.25'" },
+            est_price_usd: {
+              type: "number",
+              description:
+                "Realistic current US grocery-store price PER TYPICAL SERVING (not per package/dozen/pound) as a plain decimal number, e.g. 0.85 for a serving of rice, or 1.75 for a serving of chicken thighs. A serving is essentially never under $0.30 or over $10.",
+            },
             calories: { type: "number", description: "Approx calories per typical serving" },
             protein_g: { type: "number", description: "Approx protein grams per typical serving" },
             why: { type: "string", description: "1 sentence on why this fits their goal and budget" },
           },
-          required: ["food_name", "budget_tier", "est_cost_per_serving", "calories", "protein_g", "why"],
+          required: ["food_name", "budget_tier", "est_price_usd", "calories", "protein_g", "why"],
         },
         description: "9-12 picks total, spread across all three budget tiers, ranked cheapest-first within each tier.",
       },
@@ -82,7 +87,7 @@ export async function GET() {
           role: "user",
           content: `Recommend specific, widely-available grocery foods (US grocery stores) for this user, ranked by budget. ${goalContext(
             goal as Goal | null
-          )} Use realistic, typical US grocery prices. Give 9-12 picks total: a few "budget" (cheapest staples), a few "moderate", and a few "splurge" (still reasonable, just pricier/higher quality) options, ranked cheapest-first within each tier.`,
+          )} Use realistic, CURRENT (2026) US grocery prices per serving — sanity-check every number against what a real receipt would show (e.g. a whole dozen eggs runs several dollars, so a single egg serving is well under a dollar but never a few cents; a chicken breast serving is a couple of dollars, not pennies). Give 9-12 picks total: a few "budget" (cheapest staples), a few "moderate", and a few "splurge" (still reasonable, just pricier/higher quality) options, ranked cheapest-first within each tier.`,
         },
       ],
     });
@@ -92,7 +97,19 @@ export async function GET() {
       return NextResponse.json({ error: "Model did not return structured data" }, { status: 502 });
     }
 
-    return NextResponse.json(toolUse.input);
+    const input = toolUse.input as {
+      summary: string;
+      picks: { budget_tier: "budget" | "moderate" | "splurge"; est_price_usd: number }[];
+    };
+    // A prompt asking for "realistic" prices is a nudge, not a guarantee —
+    // clamp every price into a plausible range per tier so nothing absurd
+    // (like a fraction-of-a-cent "serving") can ever reach the screen.
+    input.picks = input.picks.map((p) => ({
+      ...p,
+      est_price_usd: clampPrice(p.est_price_usd, GROCERY_BOUNDS[p.budget_tier] ?? GROCERY_BOUNDS.moderate),
+    }));
+
+    return NextResponse.json(input);
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Couldn't generate recommendations. Try again." }, { status: 500 });

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
+import { RESTAURANT_BOUNDS, clampPrice } from "@/lib/priceSanity";
 import type { Goal } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -24,10 +25,15 @@ const PLACES_TOOL = {
             },
             cuisine: { type: "string" },
             price_range: { type: "string", enum: ["$", "$$", "$$$"] },
+            est_price_usd: {
+              type: "number",
+              description:
+                "Realistic current US price for the specific suggested order (the whole meal, not per ingredient), as a plain decimal number, e.g. 11.50. Sanity-check it against the price_range symbol and against what a real restaurant receipt for that item would show.",
+            },
             order_suggestion: { type: "string", description: "Specific menu item(s) to order that fit the user's goal" },
             why: { type: "string", description: "1 sentence on why this order fits their goal" },
           },
-          required: ["name", "cuisine", "price_range", "order_suggestion", "why"],
+          required: ["name", "cuisine", "price_range", "est_price_usd", "order_suggestion", "why"],
         },
         description: "5-8 place suggestions.",
       },
@@ -64,7 +70,7 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { town } = body as { town?: string };
   if (!town || !town.trim()) {
-    return NextResponse.json({ error: "Enter a town or city first" }, { status: 400 });
+    return NextResponse.json({ error: "Enter a city and state first" }, { status: 400 });
   }
 
   const { data: goal } = await supabase
@@ -82,7 +88,7 @@ export async function POST(request: Request) {
       messages: [
         {
           role: "user",
-          content: `The user lives near/in "${town}". Based on your general knowledge of common restaurants and chains likely to be in or near a town like this (you don't have live location data, so favor well-known chains that are broadly common in the US, or general categories when unsure), recommend restaurants and specific menu items to order. ${goalContext(
+          content: `The user lives near/in "${town}". You don't have live location data, so reason from your general knowledge of that specific city/region: its cost of living, what chains and local restaurant types are actually common there, and typical menu prices for that area specifically (a meal in a major coastal city usually costs noticeably more than the same meal in a small Midwest town — reflect that, don't use one flat national average). Prefer real, specific restaurants or chains you're confident are common in or near that area; fall back to a general category (e.g. "A local Mexican spot") only when you're not confident a specific name applies there. Recommend restaurants and specific menu items to order. ${goalContext(
             goal as Goal | null
           )}`,
         },
@@ -94,7 +100,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Model did not return structured data" }, { status: 502 });
     }
 
-    return NextResponse.json(toolUse.input);
+    const input = toolUse.input as { places: { est_price_usd: number }[] };
+    input.places = input.places.map((p) => ({ ...p, est_price_usd: clampPrice(p.est_price_usd, RESTAURANT_BOUNDS) }));
+
+    return NextResponse.json(input);
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: "Couldn't generate suggestions. Try again." }, { status: 500 });
