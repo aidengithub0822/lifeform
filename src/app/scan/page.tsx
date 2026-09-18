@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import ScoreBadge from "@/components/ScoreBadge";
 import XpSparkToast from "@/components/XpSparkToast";
+import { localDateString } from "@/lib/timezone";
 
 interface ScanResult {
   food_name: string;
@@ -20,12 +21,10 @@ interface ScanResult {
 
 type Mode = "photo" | "text";
 
-// The date input's own local calendar day — using toISOString() here would
-// silently roll to the wrong day for anyone west of UTC in the evening.
+// The date input's own local calendar day — see src/lib/timezone.ts for why
+// this must never be a raw toISOString() slice.
 function todayLocalStr(): string {
-  const d = new Date();
-  const offset = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - offset).toISOString().slice(0, 10);
+  return localDateString(new Date());
 }
 
 // iPhone camera photos can be several MB, and base64-encoding inflates that

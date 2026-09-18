@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImageForUpload } from "@/lib/imageUpload";
 import PullToRefresh from "@/components/PullToRefresh";
+import { localDateString } from "@/lib/timezone";
 import {
   LineChart,
   Line,
@@ -137,7 +138,10 @@ export default function ProgressPage() {
     const { error } = await supabase.from("measurements").upsert(
       {
         user_id: user.id,
-        logged_at: new Date().toISOString().slice(0, 10),
+        // Local calendar day, not UTC — see src/lib/timezone.ts. Running in
+        // the browser, this needs no explicit timezone: Intl already
+        // defaults to the device's real one.
+        logged_at: localDateString(new Date()),
         weight_lb: weight ? Number(weight) : null,
       },
       { onConflict: "user_id,logged_at" }
@@ -209,7 +213,7 @@ export default function ProgressPage() {
         .from("progress_photos")
         .insert({
           user_id: user.id,
-          taken_at: new Date().toISOString().slice(0, 10),
+          taken_at: localDateString(new Date()),
           photo_url: url,
           angle,
         })

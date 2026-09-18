@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import FoodLogItem from "@/components/FoodLogItem";
+import { localDateString } from "@/lib/timezone";
 import type { FoodLog } from "@/lib/types";
 
 // Home's "Today" list only ever shows literal today — a backdated entry
@@ -42,7 +43,10 @@ export default function FoodHistoryPage() {
 
   const groups = new Map<string, FoodLog[]>();
   for (const log of logs ?? []) {
-    const day = log.logged_at.slice(0, 10);
+    // Local calendar day, not a UTC slice of the stored instant — see
+    // src/lib/timezone.ts. This runs in the browser, so no explicit
+    // timezone is needed; Intl already defaults to the device's own.
+    const day = localDateString(new Date(log.logged_at));
     if (!groups.has(day)) groups.set(day, []);
     groups.get(day)!.push(log);
   }

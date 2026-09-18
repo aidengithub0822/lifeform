@@ -34,11 +34,17 @@ function SocialIcon() {
     </svg>
   );
 }
+// A flexing figure (double-bicep pose) instead of a chat-bubble/mic glyph —
+// this is the AI COACH tab, so it should read as "coach", not "chat".
 function CoachIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 2a4 4 0 0 1 4 4v2a4 4 0 0 1-8 0V6a4 4 0 0 1 4-4Z" />
-      <path d="M6 12v1a6 6 0 0 0 12 0v-1M12 19v3M9 22h6" />
+      <circle cx="12" cy="4.3" r="2.1" />
+      <path d="M12 7v7" />
+      <path d="M12 8.3 8.6 6.8 7.2 3.8" />
+      <path d="M12 8.3 15.4 6.8 16.8 3.8" />
+      <path d="M12 14 9 21" />
+      <path d="M12 14 15 21" />
     </svg>
   );
 }

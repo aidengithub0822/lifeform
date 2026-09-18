@@ -210,6 +210,17 @@ alter table public.profiles add column if not exists created_at timestamptz not 
 update public.profiles p set created_at = u.created_at
   from auth.users u where p.user_id = u.id and p.created_at > u.created_at;
 
+-- The user's IANA timezone (e.g. "America/Chicago"), kept in sync
+-- automatically by TimezoneSync.tsx on every app open. Every "what day is
+-- it" decision that runs server-side (streak reconciliation, the home
+-- page's "today", Coach's date context) reads this instead of assuming
+-- UTC — see src/lib/timezone.ts for why that assumption used to push food
+-- logs and the streak onto the wrong day for hours around midnight in any
+-- timezone west of UTC. Freely settable by the user's own client (not
+-- locked like rank/name_color/verified above) since it's just a device
+-- fact, not a privileged field.
+alter table public.profiles add column if not exists timezone text not null default 'UTC';
+
 create or replace function public.lock_profile_admin_fields()
 returns trigger as $$
 begin

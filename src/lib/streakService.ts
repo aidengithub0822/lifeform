@@ -1,14 +1,12 @@
 import { reconcileStreak, growToday, todayStatus, tierMeta, sparkXpForLogNumber, type StreakState } from "@/lib/streak";
+import { localDateString, localDayRangeUTC, todayLocal } from "@/lib/timezone";
+import { getUserTimezone } from "@/lib/userTimezone";
 
 // Minimal shape both the authenticated Supabase client and the admin
 // (service-role) client satisfy, so this logic can run from either
 // /api/streak (cookie session) or /api/widget (token lookup).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
-
-function todayUTC(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function randomToken(): string {
   // 24 random bytes, hex-encoded — unguessable, URL-safe, no padding chars.
@@ -18,7 +16,8 @@ function randomToken(): string {
 }
 
 async function loadRawState(supabase: AnySupabase, userId: string) {
-  const today = todayUTC();
+  const timezone = await getUserTimezone(supabase, userId);
+  const today = todayLocal(timezone);
 
   const [{ data: streakRow }, { data: foodRows }, { data: workoutRows }] = await Promise.all([
     supabase.from("streaks").select("*").eq("user_id", userId).maybeSingle(),
@@ -39,8 +38,13 @@ async function loadRawState(supabase: AnySupabase, userId: string) {
       .gte("logged_at", new Date(Date.now() - 125 * 86400000).toISOString().slice(0, 10)),
   ]);
 
+  // food_logs.logged_at is a full timestamptz — which LOCAL calendar day it
+  // falls on depends on the user's timezone, not UTC (see src/lib/timezone.ts).
+  // workouts.logged_at is already a plain `date` column (no time-of-day), so
+  // it's already the right day as long as it was written with the user's
+  // local day to begin with (see /api/workouts, which now uses todayLocal too).
   const foodDates = new Set<string>(
-    (foodRows ?? []).map((r: { logged_at: string }) => String(r.logged_at).slice(0, 10))
+    (foodRows ?? []).map((r: { logged_at: string }) => localDateString(new Date(r.logged_at), timezone))
   );
   const workoutDates = new Set<string>(
     (workoutRows ?? []).map((r: { logged_at: string }) => String(r.logged_at).slice(0, 10))
@@ -66,7 +70,14 @@ async function loadRawState(supabase: AnySupabase, userId: string) {
         lastCheckedDate: null,
       };
 
-  return { today, foodDates, workoutDates, prior, widgetToken: streakRow?.widget_token as string | undefined };
+  return {
+    today,
+    timezone,
+    foodDates,
+    workoutDates,
+    prior,
+    widgetToken: streakRow?.widget_token as string | undefined,
+  };
 }
 
 async function persist(supabase: AnySupabase, userId: string, state: StreakState, widgetToken: string) {
@@ -112,7 +123,14 @@ export async function loadAndReconcileStreak(supabase: AnySupabase, userId: stri
  * Returns how much XP this call just earned so the caller can show it.
  */
 export async function awardSpark(supabase: AnySupabase, userId: string) {
-  const { today, foodDates, workoutDates, prior, widgetToken: existingToken } = await loadRawState(supabase, userId);
+  const {
+    today,
+    timezone,
+    foodDates,
+    workoutDates,
+    prior,
+    widgetToken: existingToken,
+  } = await loadRawState(supabase, userId);
 
   const pastReconciled = reconcileStreak(prior, foodDates, workoutDates, today);
   const status = todayStatus(foodDates, workoutDates, today);
@@ -122,16 +140,16 @@ export async function awardSpark(supabase: AnySupabase, userId: string) {
   // foodDates/workoutDates only track which DAYS had activity (a Set), not
   // how many individual entries — so count today's actual food_log rows
   // separately to know which "log number" this one is for the escalating
-  // spark bonus.
-  const todayStart = `${today}T00:00:00.000Z`;
-  const todayEnd = `${today}T23:59:59.999Z`;
+  // spark bonus. The range must be the user's LOCAL midnight-to-midnight,
+  // not UTC — see src/lib/timezone.ts.
+  const { start: todayStart, end: todayEnd } = localDayRangeUTC(timezone, today);
   const [{ count: foodCountToday }, workoutLoggedToday] = await Promise.all([
     supabase
       .from("food_logs")
       .select("id", { count: "exact", head: true })
       .eq("user_id", userId)
       .gte("logged_at", todayStart)
-      .lte("logged_at", todayEnd),
+      .lt("logged_at", todayEnd),
     Promise.resolve(workoutDates.has(today)),
   ]);
   const logsToday = (foodCountToday ?? 0) + (workoutLoggedToday ? 1 : 0);

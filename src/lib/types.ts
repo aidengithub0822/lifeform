@@ -127,6 +127,7 @@ export interface Profile {
   rank: string;
   created_at: string;
   updated_at: string;
+  timezone: string;
 }
 
 export interface Follow {

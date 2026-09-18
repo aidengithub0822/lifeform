@@ -6,26 +6,17 @@ import HeaderMenu from "@/components/HeaderMenu";
 import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
 import RefreshOnPull from "@/components/RefreshOnPull";
 import FoodLogItem from "@/components/FoodLogItem";
+import { localDateString, localDayRangeUTC, todayLocal } from "@/lib/timezone";
+import { addDays } from "@/lib/streak";
 import type { FoodLog, Goal } from "@/lib/types";
 
-function todayRangeUTC() {
-  const start = new Date();
-  start.setUTCHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 1);
-  return { start: start.toISOString(), end: end.toISOString() };
-}
-
-// Builds the last 7 calendar days (oldest first) as YYYY-MM-DD, in the
-// browser's/server's local view of UTC-day boundaries — good enough for a
-// trend chart without needing per-user timezone storage.
-function last7Days(): string[] {
+// Builds the last 7 LOCAL calendar days (oldest first) as YYYY-MM-DD. Pure
+// string arithmetic off an already-correct local "today", so it needs no
+// further timezone awareness of its own — see src/lib/timezone.ts for why
+// "local", not UTC, is the one that matters here.
+function last7Days(todayStr: string): string[] {
   const days: string[] = [];
-  for (let i = 6; i >= 0; i--) {
-    const d = new Date();
-    d.setUTCDate(d.getUTCDate() - i);
-    days.push(d.toISOString().slice(0, 10));
-  }
+  for (let i = 6; i >= 0; i--) days.push(addDays(todayStr, -i));
   return days;
 }
 
@@ -38,7 +29,11 @@ export default async function HomePage() {
 
   const [{ data: goal }, { data: profile }] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle<Goal>(),
-    supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle<{ username: string | null }>(),
+    supabase
+      .from("profiles")
+      .select("username, timezone")
+      .eq("user_id", user.id)
+      .maybeSingle<{ username: string | null; timezone: string | null }>(),
   ]);
 
   // Username is a forced gate for every account (new or pre-existing) —
@@ -46,8 +41,9 @@ export default async function HomePage() {
   // now the username picker.
   if (!profile?.username || !goal) redirect("/onboarding");
 
-  const { start, end } = todayRangeUTC();
-  const weekDays = last7Days();
+  const todayStr = todayLocal(profile.timezone);
+  const { start, end } = localDayRangeUTC(profile.timezone, todayStr);
+  const weekDays = last7Days(todayStr);
   const [{ data: logs }, { data: weekLogs }] = await Promise.all([
     supabase
       .from("food_logs")
@@ -77,7 +73,9 @@ export default async function HomePage() {
   );
 
   const dayTotals: DayTotal[] = weekDays.map((date) => {
-    const rows = (weekLogs ?? []).filter((r) => String(r.logged_at).slice(0, 10) === date);
+    const rows = (weekLogs ?? []).filter(
+      (r) => localDateString(new Date(r.logged_at), profile.timezone) === date
+    );
     const calories = rows.reduce((a, r) => a + r.calories, 0);
     const protein = rows.reduce((a, r) => a + Number(r.protein_g), 0);
     const avgScore = rows.length ? rows.reduce((a, r) => a + r.score, 0) / rows.length : null;

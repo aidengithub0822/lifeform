@@ -1,11 +1,9 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ALL_EXERCISES, MUSCLE_GROUPS } from "@/lib/trainingSplits";
+import { todayLocal } from "@/lib/timezone";
+import { getUserTimezone } from "@/lib/userTimezone";
 import type { Lift } from "@/lib/types";
-
-function todayUTC(): string {
-  return new Date().toISOString().slice(0, 10);
-}
 
 // GET: recent lifts (most recent first), optionally filtered to one muscle
 // group — used by the fitness page to show "last logged" per exercise, and
@@ -82,7 +80,8 @@ export async function POST(request: Request) {
     .from("lifts")
     .insert({
       user_id: user.id,
-      logged_at: todayUTC(),
+      // The user's LOCAL day, not the server's UTC day — see src/lib/timezone.ts.
+      logged_at: todayLocal(await getUserTimezone(supabase, user.id)),
       lift_name: catalogEntry.name,
       weight_lb: weightLb,
       reps,
