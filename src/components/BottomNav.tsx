@@ -5,11 +5,12 @@ import { usePathname } from "next/navigation";
 
 // Six predictable destinations: Home (today's snapshot + quick links to
 // Recipes/Meal ideas), Fitness (opens straight to the muscle-rank page —
-// previously buried a tap deeper inside "Train"), Coach (the AI — the most
-// visually prominent tab, since it's the app's most important feature and
-// has real read/write access to your data, not just chat), Progress
-// (weight/photos/trends), Social (the community feed), Profile (your public
-// identity + account — DMs live behind the message-bubble icon there).
+// previously buried a tap deeper inside "Train"), Progress (weight/photos/
+// trends), Social (the community feed), Profile (your public identity +
+// account — DMs live behind the message-bubble icon there), and Coach last —
+// deliberately at the end rather than the middle of a 6-tab row (a middle
+// slot only reads as "the important one" with an odd tab count), but still
+// the most visually prominent icon via the raised glowing badge below.
 // Inline stroke icons, matching the app's design system (no emoji in the UI chrome).
 function HomeIcon() {
   return (
@@ -34,17 +35,14 @@ function SocialIcon() {
     </svg>
   );
 }
-// A flexing figure (double-bicep pose) instead of a chat-bubble/mic glyph —
-// this is the AI COACH tab, so it should read as "coach", not "chat".
+// A four-point "sparkle" pair — the same visual shorthand for "AI" used by
+// Gemini/Copilot/etc — filled rather than stroked so it reads as a distinct
+// symbol/logo mark rather than another line icon in the row.
 function CoachIcon() {
   return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="4.3" r="2.1" />
-      <path d="M12 7v7" />
-      <path d="M12 8.3 8.6 6.8 7.2 3.8" />
-      <path d="M12 8.3 15.4 6.8 16.8 3.8" />
-      <path d="M12 14 9 21" />
-      <path d="M12 14 15 21" />
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+      <path d="M12 2c.6 3.4 1.7 5.6 3.2 7.1 1.5 1.5 3.7 2.6 7.1 3.2-3.4.6-5.6 1.7-7.1 3.2-1.5 1.5-2.6 3.7-3.2 7.1-.6-3.4-1.7-5.6-3.2-7.1C7.3 14 5.1 12.9 1.7 12.3c3.4-.6 5.6-1.7 7.1-3.2C10.3 7.6 11.4 5.4 12 2Z" />
+      <path d="M19 2.5c.3 1.4.8 2.3 1.7 3.2.9.9 1.8 1.4 3.2 1.7-1.4.3-2.3.8-3.2 1.7-.9.9-1.4 1.8-1.7 3.2-.3-1.4-.8-2.3-1.7-3.2-.9-.9-1.8-1.4-3.2-1.7 1.4-.3 2.3-.8 3.2-1.7.9-.9 1.4-1.8 1.7-3.2Z" />
     </svg>
   );
 }
@@ -72,7 +70,6 @@ const tabs = [
     Icon: FitnessIcon,
     matches: ["/fitness", "/train", "/scan", "/recipes", "/discover"],
   },
-  { href: "/coach", label: "Coach", Icon: CoachIcon, matches: ["/coach"] },
   { href: "/progress", label: "Progress", Icon: ProgressIcon, matches: ["/progress"] },
   {
     href: "/community",
@@ -86,6 +83,7 @@ const tabs = [
     Icon: ProfileIcon,
     matches: ["/profile", "/messages"],
   },
+  { href: "/coach", label: "Coach", Icon: CoachIcon, matches: ["/coach"] },
 ];
 
 export default function BottomNav() {
