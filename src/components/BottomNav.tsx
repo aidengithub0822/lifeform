@@ -9,8 +9,9 @@ import { usePathname } from "next/navigation";
 // trends), Social (the community feed), Profile (your public identity +
 // account — DMs live behind the message-bubble icon there), and Coach last —
 // deliberately at the end rather than the middle of a 6-tab row (a middle
-// slot only reads as "the important one" with an odd tab count), but still
-// the most visually prominent icon via the raised glowing badge below.
+// slot only reads as "the important one" with an odd tab count). It sits
+// in line with every other tab (no raised badge) — the .lf-ai-aura ring
+// around its icon is what marks it as the AI, not its position or size.
 // Inline stroke icons, matching the app's design system (no emoji in the UI chrome).
 function HomeIcon() {
   return (
@@ -114,13 +115,7 @@ export default function BottomNav() {
               }`}
             >
               {isCoach ? (
-                <span
-                  className={`lf-glow -mt-5 flex h-11 w-11 items-center justify-center rounded-full border ${
-                    active
-                      ? "border-emerald-400 bg-emerald-500 text-black"
-                      : "border-emerald-500/50 bg-zinc-900 text-emerald-400"
-                  }`}
-                >
+                <span className="lf-ai-aura flex h-[21px] w-[21px] items-center justify-center rounded-full">
                   <Icon />
                 </span>
               ) : (
