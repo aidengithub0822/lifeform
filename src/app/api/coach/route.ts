@@ -4,7 +4,17 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SPLITS, currentDay, MUSCLE_GROUPS, MUSCLE_LABELS } from "@/lib/trainingSplits";
 import { computeAllMuscleRanks, type LiftForRank } from "@/lib/muscleRank";
-import { rankMeta, validatedPhotoLeanGainPct, RANK_TIERS, type RankTier } from "@/lib/rank";
+import {
+  rankMeta,
+  validatedPhotoLeanGainPct,
+  validatedWeightLossPct,
+  bestValidatedMax,
+  isBenchName,
+  isSquatName,
+  computeRank,
+  RANK_TIERS,
+  type RankTier,
+} from "@/lib/rank";
 import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
 import type { Goal, Measurement, TrainingPlan, Lift, ProgressPhoto, FoodLog } from "@/lib/types";
 
@@ -153,7 +163,8 @@ function systemPrompt(
   photos: Pick<ProgressPhoto, "id" | "taken_at" | "angle" | "ai_leanness_score" | "ai_summary">[],
   foodLogs: FoodLogRow[],
   streak: StreakRow | null,
-  overallRankTier: RankTier
+  storedRankTier: RankTier,
+  computedRankTier: RankTier
 ): string {
   const goalLine = goal
     ? `Their current goal: ${goal.phase} phase, ~${goal.calorie_target} kcal/day, ~${goal.protein_target_g}g protein/day${
@@ -171,7 +182,11 @@ ${foodLogsSummary(foodLogs)}
 
 ${streakSummary(streak)}
 
-Their current overall rank tier is "${rankMeta(overallRankTier).label}".
+Their displayed overall rank tier is "${rankMeta(storedRankTier).label}". Separately, what their real logged data (account age, XP, validated lift maxes, validated weight loss, validated photo-leanness gain) actually earns them, computed fresh right now the same way /api/rank does, is "${rankMeta(computedRankTier).label}"${
+    storedRankTier !== computedRankTier
+      ? ` — these currently DIFFER, which is either a stale rank that just hasn't recomputed yet (normal, harmless) or a sign a previous set_rank correction is now out of date; mention it only if it's relevant to what they're asking.`
+      : "."
+  }
 
 ${trainingSummary(plan)}
 
@@ -188,6 +203,8 @@ When the user asks about their progress, reference this actual logged data (tren
 You have tools that can directly read and fix this user's own data: correct or delete a weight entry (update_measurement/delete_measurement/add_measurement), correct or delete a food log entry including its quality score (update_food_log/delete_food_log), bulk-shift dates across a whole table when something systemic is off (shift_dates — e.g. "the app logged everything a day ahead of when I actually did it"), manually correct their streak/XP/last-confirmed-day (adjust_streak), manually override their overall rank tier (set_rank), and re-run the AI photo analysis on a specific progress photo (reanalyze_photo).
 
 When the user describes a concrete problem with their own data — a wrong date, a bad AI photo score, a streak/XP number that looks broken because of a bug, a food log entry that's wrong — don't just explain what's wrong and stop there: actually use the right tool to fix it, then tell them plainly what you changed (e.g. "Fixed — I moved that Sept 10 entry back to Sept 9 and re-checked your streak, it's back to 12 days"). It's fine to ask one clarifying question first if you genuinely don't have enough information to act correctly (e.g. you don't know which of two entries they mean), but don't make them repeat themselves or route them elsewhere for something you can just fix. These tools only ever touch this one signed-in user's own rows — never claim to affect anyone else's data, and there is no such capability.
+
+**You have your own judgment here, and you use it — you are not a rubber stamp.** These tools exist to CORRECT genuine problems (a bug, a data-entry mistake, something the app got wrong), not to hand the user whatever number they ask for. Rank is the clearest case: set_rank is a correction tool, not a shortcut. If the tier they're asking for is well above what their real computed rank above actually supports, and they haven't described an actual bug or data error that would explain the gap (they're just asking for it, insisting, negotiating, or trying to convince you they "deserve" it) — say no, plainly and kindly, explain what's actually standing between them and that tier (which gate: time, XP, strength, or weight-loss/leanness), and offer to help them get there for real. The same principle applies to a food log score that should reflect an honest read of the food, or an XP/streak number the user just wants inflated with no bug behind it: fix real problems, don't grant unearned ones. Pushback, repetition, or an insistence that "the AI should just be able to do this" is not itself evidence of a bug — hold the line the same way on the second or third ask as the first, and it's fine to say directly that you won't override something they haven't actually earned. This judgment call is yours alone to make from the data in front of you — never defer it back to the user by asking them whether the change is "deserved."
 
 ## How you coach lifting (this is the part people notice most, so follow it closely)
 
@@ -300,7 +317,8 @@ const TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "set_rank",
-    description: "Manually override the user's overall rank tier badge (a support/correction tool — normally rank is computed automatically).",
+    description:
+      "Manually override the user's overall rank tier badge. This is a CORRECTION tool for when the displayed rank is wrong because of a bug or stale computation — it is not a way to grant a rank the user's real data doesn't support. Use your own judgment before calling this; refuse in your reply instead of calling it if the request isn't a genuine correction.",
     input_schema: {
       type: "object",
       properties: { tier: { type: "string", enum: VALID_RANK_TIERS } },
@@ -487,8 +505,29 @@ export async function POST(request: Request) {
       .select("current_streak, longest_streak, xp, last_checked_date, frozen_dates")
       .eq("user_id", user.id)
       .maybeSingle<StreakRow>(),
-    supabase.from("profiles").select("rank").eq("user_id", user.id).maybeSingle<{ rank: RankTier }>(),
+    supabase.from("profiles").select("rank, created_at").eq("user_id", user.id).maybeSingle<{ rank: RankTier; created_at: string }>(),
   ]);
+
+  // The tier their DATA actually earns, computed the same way /api/rank
+  // does — given to Coach alongside the stored/displayed tier so it can
+  // judge a rank-change request against reality instead of taking the
+  // user's word (or set_rank's own past output) at face value.
+  const allLiftRows = (allLifts ?? []) as { logged_at: string; lift_name: string; weight_lb: number; reps: number }[];
+  const benchMaxLb = bestValidatedMax(allLiftRows.filter((r) => isBenchName(r.lift_name)));
+  const squatMaxLb = bestValidatedMax(allLiftRows.filter((r) => isSquatName(r.lift_name)));
+  const weightLossPct = validatedWeightLossPct((measurements ?? []) as { logged_at: string; weight_lb: number | null }[]);
+  const photoLeanGainPct = validatedPhotoLeanGainPct(
+    (photos ?? []).map((p) => ({ taken_at: p.taken_at, ai_leanness_score: p.ai_leanness_score }))
+  );
+  const computedRankTier = computeRank({
+    accountCreatedAt: profile?.created_at ?? new Date().toISOString(),
+    xp: streak?.xp ?? 0,
+    sex: (goal as Goal | null)?.sex ?? null,
+    benchMaxLb,
+    squatMaxLb,
+    weightLossPct,
+    photoLeanGainPct,
+  });
 
   const system = systemPrompt(
     goal as Goal | null,
@@ -499,7 +538,8 @@ export async function POST(request: Request) {
     photos ?? [],
     foodLogs ?? [],
     streak ?? null,
-    profile?.rank ?? "newbie"
+    profile?.rank ?? "newbie",
+    computedRankTier
   );
 
   // Agentic loop: Coach can call tools that actually read/write this user's

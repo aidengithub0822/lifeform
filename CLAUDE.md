@@ -148,7 +148,15 @@ leftover conventions in this file make sense.
   `reanalyze_photo` (re-runs `analyzeProgressPhoto()` from
   `src/lib/progressPhotoAnalysis.ts` on one photo). When a user describes a
   data problem, Coach is instructed to actually fix it with these tools and
-  say what it changed, not just explain the issue.
+  say what it changed, not just explain the issue. It's deliberately not a
+  rubber stamp, though: `set_rank` (and the system prompt generally) is
+  framed as a CORRECTION tool, not a shortcut — the prompt computes the
+  user's real earned rank tier fresh via `computeRank()` (same inputs as
+  `/api/rank`: validated lift maxes, weight-loss %, photo-leanness gain %,
+  XP, account age) and hands Coach both that and the stored/displayed tier,
+  with explicit instructions to refuse an unearned rank-up request (or an
+  unearned score/XP bump) and explain what's actually missing instead of
+  granting it just because the user asks or pushes back.
 - **`/fitness`** — male/female body diagram toggle (user-supplied images in
   `public/fitness/`, compressed to JPEG), tap a muscle-group category to see
   a curated workout list from the static catalog in
