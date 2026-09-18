@@ -26,6 +26,17 @@ export default function TimezoneSync() {
       }
       if (!deviceTz) return;
 
+      // Written synchronously, before any async DB round trip, so it's
+      // immediately available to every server request from this point on —
+      // no dependency on the profiles.timezone column existing or on a
+      // Supabase write completing. See src/lib/requestTimezone.ts for why
+      // this is what server code should actually read.
+      try {
+        document.cookie = `lf_tz=${encodeURIComponent(deviceTz)}; path=/; max-age=31536000; SameSite=Lax`;
+      } catch {
+        // Cookies blocked/unavailable — DB fallback below still applies.
+      }
+
       const {
         data: { user },
       } = await supabase.auth.getUser();

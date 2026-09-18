@@ -7,16 +7,23 @@ import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
 import RefreshOnPull from "@/components/RefreshOnPull";
 import FoodLogItem from "@/components/FoodLogItem";
 import { localDateString, localDayRangeUTC, todayLocal } from "@/lib/timezone";
+import { resolveUserTimezone } from "@/lib/requestTimezone";
 import { addDays } from "@/lib/streak";
 import type { FoodLog, Goal } from "@/lib/types";
 
-// Builds the last 7 LOCAL calendar days (oldest first) as YYYY-MM-DD. Pure
-// string arithmetic off an already-correct local "today", so it needs no
-// further timezone awareness of its own — see src/lib/timezone.ts for why
-// "local", not UTC, is the one that matters here.
-function last7Days(todayStr: string): string[] {
+// Builds the CURRENT Sunday-through-Saturday calendar week (oldest first) as
+// YYYY-MM-DD, so the weekly chart always reads S M T W T F S left-to-right —
+// not a rolling "last 7 days" window, which can start on any weekday
+// depending on what today happens to be. Days after today that fall in the
+// current week are included (they'll just render as zero) — that's normal
+// calendar-week behavior, not a bug. Pure string arithmetic off an
+// already-correct local "today", so it needs no further timezone awareness
+// of its own — see src/lib/timezone.ts for why "local", not UTC, matters.
+function currentWeek(todayStr: string): string[] {
+  const dow = new Date(`${todayStr}T00:00:00`).getDay(); // 0 = Sunday
+  const sunday = addDays(todayStr, -dow);
   const days: string[] = [];
-  for (let i = 6; i >= 0; i--) days.push(addDays(todayStr, -i));
+  for (let i = 0; i < 7; i++) days.push(addDays(sunday, i));
   return days;
 }
 
@@ -41,9 +48,14 @@ export default async function HomePage() {
   // now the username picker.
   if (!profile?.username || !goal) redirect("/onboarding");
 
-  const todayStr = todayLocal(profile.timezone);
-  const { start, end } = localDayRangeUTC(profile.timezone, todayStr);
-  const weekDays = last7Days(todayStr);
+  // Prefers the lf_tz cookie (set client-side the moment the page loads —
+  // see TimezoneSync.tsx / src/lib/requestTimezone.ts) over the
+  // profiles.timezone column, so "today" is correct even for an account
+  // whose DB row hasn't picked up a timezone yet.
+  const timezone = await resolveUserTimezone(supabase, user.id);
+  const todayStr = todayLocal(timezone);
+  const { start, end } = localDayRangeUTC(timezone, todayStr);
+  const weekDays = currentWeek(todayStr);
   const [{ data: logs }, { data: weekLogs }] = await Promise.all([
     supabase
       .from("food_logs")
@@ -74,7 +86,7 @@ export default async function HomePage() {
 
   const dayTotals: DayTotal[] = weekDays.map((date) => {
     const rows = (weekLogs ?? []).filter(
-      (r) => localDateString(new Date(r.logged_at), profile.timezone) === date
+      (r) => localDateString(new Date(r.logged_at), timezone) === date
     );
     const calories = rows.reduce((a, r) => a + r.calories, 0);
     const protein = rows.reduce((a, r) => a + Number(r.protein_g), 0);

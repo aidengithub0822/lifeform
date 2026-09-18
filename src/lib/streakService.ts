@@ -1,6 +1,6 @@
 import { reconcileStreak, growToday, todayStatus, tierMeta, sparkXpForLogNumber, type StreakState } from "@/lib/streak";
 import { localDateString, localDayRangeUTC, todayLocal } from "@/lib/timezone";
-import { getUserTimezone } from "@/lib/userTimezone";
+import { resolveUserTimezone } from "@/lib/requestTimezone";
 
 // Minimal shape both the authenticated Supabase client and the admin
 // (service-role) client satisfy, so this logic can run from either
@@ -16,7 +16,7 @@ function randomToken(): string {
 }
 
 async function loadRawState(supabase: AnySupabase, userId: string) {
-  const timezone = await getUserTimezone(supabase, userId);
+  const timezone = await resolveUserTimezone(supabase, userId);
   const today = todayLocal(timezone);
 
   const [{ data: streakRow }, { data: foodRows }, { data: workoutRows }] = await Promise.all([

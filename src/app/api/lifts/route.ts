@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { ALL_EXERCISES, MUSCLE_GROUPS } from "@/lib/trainingSplits";
 import { todayLocal } from "@/lib/timezone";
-import { getUserTimezone } from "@/lib/userTimezone";
+import { resolveUserTimezone } from "@/lib/requestTimezone";
 import type { Lift } from "@/lib/types";
 
 // GET: recent lifts (most recent first), optionally filtered to one muscle
@@ -81,7 +81,7 @@ export async function POST(request: Request) {
     .insert({
       user_id: user.id,
       // The user's LOCAL day, not the server's UTC day — see src/lib/timezone.ts.
-      logged_at: todayLocal(await getUserTimezone(supabase, user.id)),
+      logged_at: todayLocal(await resolveUserTimezone(supabase, user.id)),
       lift_name: catalogEntry.name,
       weight_lb: weightLb,
       reps,

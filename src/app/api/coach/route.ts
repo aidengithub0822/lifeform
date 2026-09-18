@@ -17,7 +17,7 @@ import {
 } from "@/lib/rank";
 import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
 import { todayLocal } from "@/lib/timezone";
-import { getUserTimezone } from "@/lib/userTimezone";
+import { resolveUserTimezone } from "@/lib/requestTimezone";
 import type { Goal, Measurement, TrainingPlan, Lift, ProgressPhoto, FoodLog } from "@/lib/types";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -526,7 +526,7 @@ export async function POST(request: Request) {
   const photoLeanGainPct = validatedPhotoLeanGainPct(
     (photos ?? []).map((p) => ({ taken_at: p.taken_at, ai_leanness_score: p.ai_leanness_score }))
   );
-  const todayStr = todayLocal(await getUserTimezone(supabase, user.id));
+  const todayStr = todayLocal(await resolveUserTimezone(supabase, user.id));
 
   const computedRankTier = computeRank({
     accountCreatedAt: profile?.created_at ?? new Date().toISOString(),

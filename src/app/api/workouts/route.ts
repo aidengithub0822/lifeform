@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { awardSpark } from "@/lib/streakService";
 import { todayLocal } from "@/lib/timezone";
-import { getUserTimezone } from "@/lib/userTimezone";
+import { resolveUserTimezone } from "@/lib/requestTimezone";
 
 // POST: check in "I trained today" (idempotent — upsert on the unique user+date).
 // Only the FIRST check-in of a given day awards spark XP — repeat taps the
@@ -16,7 +16,7 @@ export async function POST() {
 
   // The user's LOCAL day, not the server container's UTC day — see
   // src/lib/timezone.ts for why that distinction matters here.
-  const today = todayLocal(await getUserTimezone(supabase, user.id));
+  const today = todayLocal(await resolveUserTimezone(supabase, user.id));
   const { data: existing } = await supabase
     .from("workouts")
     .select("logged_at")
@@ -46,7 +46,7 @@ export async function DELETE() {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const today = todayLocal(await getUserTimezone(supabase, user.id));
+  const today = todayLocal(await resolveUserTimezone(supabase, user.id));
   const { error } = await supabase
     .from("workouts")
     .delete()
