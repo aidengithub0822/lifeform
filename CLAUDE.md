@@ -338,7 +338,7 @@ immediately, and on iPhone once the PWA is added to the Home Screen (iOS
 - `public/sw.js` — `push` event shows the notification; `notificationclick`
   focuses an open tab (or opens one) at the payload's `url`.
 
-## Meal diary, notifications, coach history (added on the `chat2` branch)
+## Meal diary, notifications, coach history
 
 Re-run `supabase/schema.sql` in Supabase Studio after pulling these — every
 addition at the bottom is re-runnable. The app degrades gracefully until then
