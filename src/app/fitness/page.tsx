@@ -18,6 +18,7 @@ import XpSparkToast from "@/components/XpSparkToast";
 import MuscleMapOverlay from "@/components/MuscleMapOverlay";
 import RankCalculator from "@/components/RankCalculator";
 import ExerciseStatsPanel from "@/components/ExerciseStatsPanel";
+import LiftHistoryPanel from "@/components/LiftHistoryPanel";
 import { rankMeta, RANK_TIERS, type RankTier } from "@/lib/rank";
 
 type Sex = "male" | "female";
@@ -166,6 +167,7 @@ export default function FitnessPage() {
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [rankSummary, setRankSummary] = useState<RankSummary | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [showLifts, setShowLifts] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [bodyweightLb, setBodyweightLb] = useState<number | null>(null);
 
@@ -297,6 +299,12 @@ export default function FitnessPage() {
           🧮 Rank Calculator
         </button>
       </div>
+      <button
+        onClick={() => setShowLifts(true)}
+        className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-full border border-[#1f1f23] bg-[#111113] py-2.5 text-xs font-semibold text-[#e4e4e7]"
+      >
+        🏋️ My lifts — edit or delete
+      </button>
 
       <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
         <button
@@ -546,6 +554,15 @@ export default function FitnessPage() {
         <ExerciseStatsPanel
           rows={muscleRanks.map((r) => ({ muscle: r.muscle, tier: r.tier, bestLift: r.bestLift, totalSetsLogged: r.totalSetsLogged }))}
           onClose={() => setShowStats(false)}
+        />
+      )}
+      {showLifts && (
+        <LiftHistoryPanel
+          onClose={() => setShowLifts(false)}
+          onChanged={() => {
+            refreshMuscleRanks();
+            refreshRankSummary();
+          }}
         />
       )}
       {showCalculator && <RankCalculator defaultBodyweightLb={bodyweightLb} onClose={() => setShowCalculator(false)} />}

@@ -1,7 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { AI_MODEL } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 const MODERATION_TOOL = {
   name: "moderate_post",

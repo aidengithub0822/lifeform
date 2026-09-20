@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import DoubleTapLike from "@/components/DoubleTapLike";
 import type { ProfilePhoto } from "@/lib/types";
 
 /**
@@ -82,6 +83,11 @@ export default function PhotoLightbox({
     setBusy(false);
   }
 
+  // Double-tap only ever likes (like Instagram/TikTok) — it never unlikes.
+  function likePhoto() {
+    if (!likedByMe) toggleLike();
+  }
+
   function openComments() {
     if (!photo?.community_post_id) return;
     onClose();
@@ -136,8 +142,10 @@ export default function PhotoLightbox({
             else if (dx < -50) goTo(index + 1);
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={photo.photo_url} alt="" className="max-h-[55vh] w-full object-contain" />
+          <DoubleTapLike disabled={!myUserId} onLike={likePhoto}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={photo.photo_url} alt="" className="max-h-[55vh] w-full object-contain" />
+          </DoubleTapLike>
           {index > 0 && (
             <button
               onClick={() => goTo(index - 1)}

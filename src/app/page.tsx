@@ -2,10 +2,11 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import Flame from "@/components/Flame";
+import NotificationsBell from "@/components/NotificationsBell";
 import HeaderMenu from "@/components/HeaderMenu";
 import WeeklyTrends, { type DayTotal } from "@/components/WeeklyTrends";
 import RefreshOnPull from "@/components/RefreshOnPull";
-import FoodLogItem from "@/components/FoodLogItem";
+import MealDiary from "@/components/MealDiary";
 import { localDateString, localDayRangeUTC, todayLocal } from "@/lib/timezone";
 import { resolveUserTimezone } from "@/lib/requestTimezone";
 import { addDays } from "@/lib/streak";
@@ -27,7 +28,11 @@ function currentWeek(todayStr: string): string[] {
   return days;
 }
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ date?: string | string[] }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -54,7 +59,12 @@ export default async function HomePage() {
   // whose DB row hasn't picked up a timezone yet.
   const timezone = await resolveUserTimezone(supabase, user.id);
   const todayStr = todayLocal(timezone);
-  const { start, end } = localDayRangeUTC(timezone, todayStr);
+  // ?date=YYYY-MM-DD lets the diary show a past day (the ‹ › arrows below).
+  const { date: dateParam } = await searchParams;
+  const requested = Array.isArray(dateParam) ? dateParam[0] : dateParam;
+  const viewDate = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= todayStr ? requested : todayStr;
+  const isToday = viewDate === todayStr;
+  const { start, end } = localDayRangeUTC(timezone, viewDate);
   const weekDays = currentWeek(todayStr);
   const [{ data: logs }, { data: weekLogs }] = await Promise.all([
     supabase
@@ -106,12 +116,15 @@ export default async function HomePage() {
         <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-lg font-extrabold lowercase tracking-tight text-emerald-400">
           lifeform
         </span>
-        <Flame />
+        <div className="flex items-center gap-1">
+          <NotificationsBell />
+          <Flame />
+        </div>
       </div>
 
       <div className="mt-7">
         <div className="flex items-baseline justify-between">
-          <p className="text-sm text-[#a1a1aa]">Remaining today</p>
+          <p className="text-sm text-[#a1a1aa]">{isToday ? "Remaining today" : "Remaining"}</p>
           <p className="text-xs capitalize text-[#52525b]">{goal.phase} phase</p>
         </div>
         <div className="mt-1 flex items-baseline gap-2">
@@ -130,40 +143,40 @@ export default async function HomePage() {
       </div>
 
       <div className="mt-7 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[#e4e4e7]">Today</h2>
-        <Link href="/scan" className="text-sm font-medium text-emerald-400">
-          + Add food
+        <Link
+          href={`/?date=${addDays(viewDate, -1)}`}
+          aria-label="Previous day"
+          className="px-2 py-1 text-lg text-[#a1a1aa] active:text-emerald-400"
+        >
+          ‹
         </Link>
-      </div>
-
-      <div className="mt-1">
-        {entries.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-[#27272a] py-10 text-center text-sm text-[#71717a]">
-            Nothing logged yet today.
-            <br />
-            <Link href="/scan" className="mt-2 inline-block font-semibold text-emerald-400">
-              Log food →
-            </Link>
-          </div>
+        <h2 className="text-sm font-semibold text-[#e4e4e7]">
+          {isToday
+            ? "Today"
+            : new Date(`${viewDate}T12:00:00`).toLocaleDateString("en-US", {
+                weekday: "short",
+                month: "short",
+                day: "numeric",
+              })}
+        </h2>
+        {isToday ? (
+          <span className="px-2 py-1 text-lg text-[#3f3f46]">›</span>
+        ) : (
+          <Link
+            href={addDays(viewDate, 1) >= todayStr ? "/" : `/?date=${addDays(viewDate, 1)}`}
+            aria-label="Next day"
+            className="px-2 py-1 text-lg text-[#a1a1aa] active:text-emerald-400"
+          >
+            ›
+          </Link>
         )}
-        {entries.map((entry) => (
-          <FoodLogItem
-            key={entry.id}
-            id={entry.id}
-            foodName={entry.food_name}
-            calories={entry.calories}
-            proteinG={entry.protein_g}
-            score={entry.score}
-            loggedAt={entry.logged_at}
-          />
-        ))}
       </div>
 
-      {entries.length > 0 && (
-        <Link href="/scan/history" className="mt-3 block text-center text-xs font-medium text-[#52525b]">
-          View full food log history →
-        </Link>
-      )}
+      <MealDiary logs={entries} timezone={timezone} dateStr={viewDate} isToday={isToday} />
+
+      <Link href="/scan/history" className="mt-3 block text-center text-xs font-medium text-[#52525b]">
+        View full food log history →
+      </Link>
 
       <WeeklyTrends days={dayTotals} calorieTarget={goal.calorie_target} />
 

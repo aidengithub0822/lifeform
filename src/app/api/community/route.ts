@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
-import { sendPushToUser } from "@/lib/push";
-import { extractMentions } from "@/lib/mentions";
+import { notifyMentions } from "@/lib/notify";
 import type { CommunityPost } from "@/lib/types";
 
 export async function GET() {
@@ -68,22 +67,14 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   if (message) {
-    const mentioned = extractMentions(message);
-    if (mentioned.length > 0) {
-      const { data: mentionedProfiles } = await supabase
-        .from("profiles")
-        .select("user_id, username")
-        .in("username", mentioned);
-      const name = profile?.username || "Someone";
-      for (const p of mentionedProfiles ?? []) {
-        if (p.user_id === user.id) continue;
-        await sendPushToUser(p.user_id, {
-          title: "You were tagged",
-          body: `${name} tagged you: ${message}`,
-          url: `/community/${inserted.id}`,
-        });
-      }
-    }
+    await notifyMentions({
+      supabase,
+      actorId: user.id,
+      actorUsername: profile?.username ?? null,
+      text: message,
+      url: `/community/${inserted.id}`,
+      where: "a post",
+    });
   }
 
   return NextResponse.json({ ok: true, id: inserted.id });

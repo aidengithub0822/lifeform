@@ -44,6 +44,13 @@ create index if not exists food_logs_user_time_idx on public.food_logs (user_id,
 -- false rows from the day-activity set it uses for streak continuity.
 alter table public.food_logs add column if not exists counts_for_streak boolean not null default true;
 
+-- Diary slot (Breakfast / Lunch / Dinner / Snacks), like MyFitnessPal. Null on
+-- older rows; the app then guesses from the time of day they were logged.
+alter table public.food_logs add column if not exists meal text;
+alter table public.food_logs drop constraint if exists food_logs_meal_check;
+alter table public.food_logs add constraint food_logs_meal_check
+  check (meal is null or meal in ('breakfast', 'lunch', 'dinner', 'snack'));
+
 create table if not exists public.recipes (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -891,3 +898,79 @@ create policy "profile media owner rw" on storage.objects
   ) with check (
     bucket_id = 'profile-media' and auth.uid()::text = (storage.foldername(name))[1]
   );
+
+-- ============================================================================
+-- In-app notifications (tags/@mentions, replies), edit + unsend permissions.
+-- Safe to re-run. Rows are written by the server with the service-role key, so
+-- there is deliberately no insert policy: nobody can forge a notification.
+-- ============================================================================
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  actor_id uuid references auth.users(id) on delete set null,
+  actor_username text,
+  type text not null default 'mention',
+  title text not null default '',
+  body text not null default '',
+  url text,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+create index if not exists notifications_user_idx on public.notifications (user_id, created_at desc);
+alter table public.notifications enable row level security;
+
+drop policy if exists "notifications_select_own" on public.notifications;
+create policy "notifications_select_own" on public.notifications
+  for select using (auth.uid() = user_id);
+drop policy if exists "notifications_update_own" on public.notifications;
+create policy "notifications_update_own" on public.notifications
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "notifications_delete_own" on public.notifications;
+create policy "notifications_delete_own" on public.notifications
+  for delete using (auth.uid() = user_id);
+
+-- Owners can edit their own community posts and replies.
+drop policy if exists "community_update_own" on public.community_posts;
+create policy "community_update_own" on public.community_posts
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "community_comments_update_own" on public.community_comments;
+create policy "community_comments_update_own" on public.community_comments
+  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- Senders can unsend (delete) their own direct messages.
+drop policy if exists "messages_delete_own" on public.messages;
+create policy "messages_delete_own" on public.messages
+  for delete using (auth.uid() = sender_id);
+
+-- ============================================================================
+-- Coach chat history: every Coach conversation is saved so you can come back
+-- to it, continue it, or delete it. Safe to re-run.
+-- ============================================================================
+create table if not exists public.coach_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  title text not null default 'New chat',
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists coach_conversations_user_idx on public.coach_conversations (user_id, updated_at desc);
+
+create table if not exists public.coach_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references public.coach_conversations(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists coach_messages_convo_idx on public.coach_messages (conversation_id, created_at);
+
+alter table public.coach_conversations enable row level security;
+alter table public.coach_messages enable row level security;
+
+drop policy if exists "owner_all" on public.coach_conversations;
+create policy "owner_all" on public.coach_conversations
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+drop policy if exists "owner_all" on public.coach_messages;
+create policy "owner_all" on public.coach_messages
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);

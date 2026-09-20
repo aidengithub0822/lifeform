@@ -36,6 +36,8 @@ export interface FoodLog {
   serving_note: string | null;
   source: "scan" | "recipe" | "manual";
   counts_for_streak: boolean;
+  /** Diary slot; null on rows logged before meals existed (see src/lib/meals.ts). */
+  meal: "breakfast" | "lunch" | "dinner" | "snack" | null;
 }
 
 export interface Recipe {

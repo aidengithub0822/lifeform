@@ -3,9 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { FAST_FOOD_BOUNDS, clampPrice } from "@/lib/priceSanity";
 import type { Goal } from "@/lib/types";
+import { AI_MODEL } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 // Fast food chains are near-nationwide, so unlike recommend-places this
 // needs no location input at all — it's the same list for almost anyone in

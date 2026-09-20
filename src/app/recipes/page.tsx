@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { MEAL_LABEL, MEAL_ORDER, defaultMealNow, isMealType, type MealType } from "@/lib/meals";
 import type { Recipe } from "@/lib/types";
 
 export default function RecipesPage() {
@@ -12,6 +13,10 @@ export default function RecipesPage() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [logging, setLogging] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [logMeal, setLogMeal] = useState<MealType>(defaultMealNow());
+  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const { data } = await supabase
@@ -31,10 +36,38 @@ export default function RecipesPage() {
 
   async function logRecipe(id: string) {
     setLogging(id);
-    await fetch(`/api/recipes/${id}/log`, { method: "POST" });
-    setLogging(null);
-    router.push("/");
-    router.refresh();
+    setError(null);
+    try {
+      const res = await fetch(`/api/recipes/${id}/log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ meal: logMeal }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(body.error || `Couldn't log that recipe (error ${res.status}).`);
+        return;
+      }
+      // Same daily-spark XP a scanned meal earns; never blocks the redirect.
+      await fetch("/api/streak/spark", { method: "POST" }).catch(() => {});
+      router.push("/");
+      router.refresh();
+    } catch {
+      setError("Couldn't reach the server. Check your connection and try again.");
+    } finally {
+      setLogging(null);
+    }
+  }
+
+  async function deleteRecipe(id: string) {
+    setError(null);
+    const { error: deleteError } = await supabase.from("recipes").delete().eq("id", id);
+    if (deleteError) {
+      setError(`Couldn't delete that recipe: ${deleteError.message}`);
+      return;
+    }
+    setDeletingId(null);
+    setRecipes((prev) => prev.filter((r) => r.id !== id));
   }
 
   return (
@@ -58,6 +91,25 @@ export default function RecipesPage() {
         />
       )}
 
+      {recipes.length > 0 && (
+        <div className="mt-4 flex items-center gap-2 text-xs text-zinc-400">
+          <label htmlFor="recipe-meal">Log recipes to</label>
+          <select
+            id="recipe-meal"
+            value={logMeal}
+            onChange={(e) => isMealType(e.target.value) && setLogMeal(e.target.value)}
+            className="rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1 text-xs text-zinc-200"
+          >
+            {MEAL_ORDER.map((m) => (
+              <option key={m} value={m}>
+                {MEAL_LABEL[m]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+
       <div className="mt-6 space-y-3">
         {loading && <p className="text-sm text-zinc-500">Loading...</p>}
         {!loading && recipes.length === 0 && !showForm && (
@@ -65,44 +117,91 @@ export default function RecipesPage() {
             No saved recipes yet.
           </div>
         )}
-        {recipes.map((r) => (
-          <div key={r.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <p className="font-semibold">{r.name}</p>
-                <p className="text-xs text-zinc-500">
-                  {Math.round(r.calories / r.servings)} calories · {Math.round(r.protein_g / r.servings)}g protein /
-                  serving
-                </p>
+        {recipes.map((r) =>
+          editingId === r.id ? (
+            <RecipeForm
+              key={r.id}
+              initial={r}
+              onCancel={() => setEditingId(null)}
+              onSaved={() => {
+                setEditingId(null);
+                load();
+              }}
+            />
+          ) : (
+            <div key={r.id} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold">{r.name}</p>
+                  <p className="text-xs text-zinc-500">
+                    {Math.round(r.calories / r.servings)} calories · {Math.round(r.protein_g / r.servings)}g protein /
+                    serving
+                  </p>
+                </div>
+                <button
+                  onClick={() => logRecipe(r.id)}
+                  disabled={logging === r.id}
+                  className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-emerald-400 disabled:opacity-60"
+                >
+                  {logging === r.id ? "Logging..." : "Log it"}
+                </button>
               </div>
-              <button
-                onClick={() => logRecipe(r.id)}
-                disabled={logging === r.id}
-                className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-emerald-400 disabled:opacity-60"
-              >
-                {logging === r.id ? "Logging..." : "Log it"}
-              </button>
+              {r.ingredients && <p className="mt-2 text-xs text-zinc-400">{r.ingredients}</p>}
+              {deletingId === r.id ? (
+                <div className="mt-3 flex items-center gap-2">
+                  <p className="flex-1 text-xs text-zinc-300">Delete this recipe? Meals you already logged stay.</p>
+                  <button
+                    onClick={() => setDeletingId(null)}
+                    className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => deleteRecipe(r.id)}
+                    className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                <div className="mt-3 flex gap-4 text-xs font-medium">
+                  <button onClick={() => setEditingId(r.id)} className="text-zinc-400 active:text-emerald-400">
+                    Edit
+                  </button>
+                  <button onClick={() => setDeletingId(r.id)} className="text-zinc-500 active:text-red-400">
+                    Delete
+                  </button>
+                </div>
+              )}
             </div>
-            {r.ingredients && <p className="mt-2 text-xs text-zinc-400">{r.ingredients}</p>}
-          </div>
-        ))}
+          )
+        )}
       </div>
     </div>
   );
 }
 
-function RecipeForm({ onSaved }: { onSaved: () => void }) {
+function RecipeForm({
+  onSaved,
+  initial,
+  onCancel,
+}: {
+  onSaved: () => void;
+  initial?: Recipe;
+  onCancel?: () => void;
+}) {
   const supabase = createClient();
-  const [name, setName] = useState("");
-  const [ingredients, setIngredients] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [servings, setServings] = useState(1);
-  const [calories, setCalories] = useState(0);
-  const [protein, setProtein] = useState(0);
-  const [carbs, setCarbs] = useState(0);
-  const [fat, setFat] = useState(0);
+  const [name, setName] = useState(initial?.name ?? "");
+  const [ingredients, setIngredients] = useState(initial?.ingredients ?? "");
+  const [instructions, setInstructions] = useState(initial?.instructions ?? "");
+  const [servings, setServings] = useState(initial?.servings ?? 1);
+  const [calories, setCalories] = useState(initial?.calories ?? 0);
+  const [protein, setProtein] = useState(initial?.protein_g ?? 0);
+  const [carbs, setCarbs] = useState(initial?.carbs_g ?? 0);
+  const [fat, setFat] = useState(initial?.fat_g ?? 0);
   const [servingNote, setServingNote] = useState<string | null>(null);
-  const [estimated, setEstimated] = useState(false);
+  // An existing recipe already has nutrition; re-estimating is optional.
+  const [estimated, setEstimated] = useState(!!initial);
   const [estimating, setEstimating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -146,17 +245,19 @@ function RecipeForm({ onSaved }: { onSaved: () => void }) {
       setSaving(false);
       return;
     }
-    const { error } = await supabase.from("recipes").insert({
-      user_id: user.id,
+    const fields = {
       name,
       ingredients,
       instructions,
-      servings,
+      servings: Math.max(1, servings),
       calories,
       protein_g: protein,
       carbs_g: carbs,
       fat_g: fat,
-    });
+    };
+    const { error } = initial
+      ? await supabase.from("recipes").update(fields).eq("id", initial.id)
+      : await supabase.from("recipes").insert({ user_id: user.id, ...fields });
     setSaving(false);
     if (error) {
       setError(error.message);
@@ -226,8 +327,13 @@ function RecipeForm({ onSaved }: { onSaved: () => void }) {
         disabled={saving || !name || !estimated}
         className="w-full rounded-xl bg-emerald-500 py-2.5 text-sm font-semibold text-black disabled:opacity-60"
       >
-        {saving ? "Saving..." : estimated ? "Save recipe" : "Estimate nutrition first"}
+        {saving ? "Saving..." : initial ? "Save changes" : estimated ? "Save recipe" : "Estimate nutrition first"}
       </button>
+      {onCancel && (
+        <button onClick={onCancel} className="w-full py-1 text-xs font-medium text-zinc-500">
+          Cancel
+        </button>
+      )}
     </div>
   );
 }

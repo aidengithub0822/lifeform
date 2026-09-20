@@ -84,12 +84,9 @@ export default function FoodHistoryPage() {
               {dayLogs.map((log) => (
                 <FoodLogItem
                   key={log.id}
-                  id={log.id}
-                  foodName={log.food_name}
-                  calories={log.calories}
-                  proteinG={log.protein_g}
-                  score={log.score}
+                  log={log}
                   onDeleted={(id) => setLogs((prev) => prev?.filter((l) => l.id !== id) ?? prev)}
+                  onUpdated={(updated) => setLogs((prev) => prev?.map((l) => (l.id === updated.id ? updated : l)) ?? prev)}
                 />
               ))}
             </div>

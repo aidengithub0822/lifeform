@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import type { Goal } from "@/lib/types";
+import { AI_MODEL, explainAiError, modelCandidates } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 const SCORE_TOOL = {
   name: "log_food_scan",
@@ -62,8 +63,13 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
-  const body = await request.json();
-  const { imageBase64, mediaType, note, foodDescription } = body as {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Couldn't read that request. Try again." }, { status: 400 });
+  }
+  const { imageBase64, mediaType, note, foodDescription } = (body ?? {}) as {
     imageBase64?: string;
     mediaType?: string;
     note?: string;
@@ -112,27 +118,57 @@ export async function POST(request: Request) {
       ];
 
   try {
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      tools: [SCORE_TOOL],
-      tool_choice: { type: "tool", name: "log_food_scan" },
-      messages: [
-        {
-          role: "user",
-          content,
-        },
-      ],
-    });
+    // If the configured model has been retired, fall through the known-good
+    // list instead of failing every scan.
+    let message: Anthropic.Messages.Message | null = null;
+    let lastErr: unknown = null;
+    for (const model of modelCandidates(MODEL)) {
+      try {
+        message = await anthropic.messages.create({
+          model,
+          max_tokens: 1024,
+          tools: [SCORE_TOOL],
+          tool_choice: { type: "tool", name: "log_food_scan" },
+          messages: [{ role: "user", content }],
+        });
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (err instanceof Anthropic.APIError && err.status === 404) continue;
+        throw err;
+      }
+    }
+    if (!message) throw lastErr;
 
     const toolUse = message.content.find((c) => c.type === "tool_use");
     if (!toolUse || toolUse.type !== "tool_use") {
-      return NextResponse.json({ error: "Model did not return structured data" }, { status: 502 });
+      return NextResponse.json({ error: "The AI didn't return a result. Try again." }, { status: 502 });
     }
 
-    return NextResponse.json(toolUse.input);
+    // The database enforces score 0-100 and non-null numbers, so a model that
+    // returns 105 or a missing field would otherwise fail the save later with
+    // a cryptic constraint error. Normalize here instead.
+    const input = toolUse.input as Record<string, unknown>;
+    const num = (v: unknown, min: number, max: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : 0;
+    };
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const fallbackName = foodDescription?.trim().slice(0, 80) || "Meal";
+    return NextResponse.json({
+      food_name: String(input.food_name || fallbackName).slice(0, 200),
+      description: String(input.description ?? ""),
+      estimated_servings_note: input.estimated_servings_note ? String(input.estimated_servings_note) : undefined,
+      calories: Math.round(num(input.calories, 0, 20000)),
+      protein_g: round1(num(input.protein_g, 0, 2000)),
+      carbs_g: round1(num(input.carbs_g, 0, 3000)),
+      fat_g: round1(num(input.fat_g, 0, 2000)),
+      score: Math.round(num(input.score, 0, 100)),
+      score_reason: String(input.score_reason ?? ""),
+    });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Scan failed. Try again with a clearer photo." }, { status: 500 });
+    console.error("scan-food failed:", err);
+    const { status, message } = explainAiError(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

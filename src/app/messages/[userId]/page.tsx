@@ -23,6 +23,7 @@ export default function MessageThreadPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -124,6 +125,18 @@ export default function MessageThreadPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  // Tap one of your own messages, then "Unsend" to delete it for both sides.
+  async function unsend(id: string) {
+    setSendError(null);
+    const { data, error } = await supabase.from("messages").delete().eq("id", id).select("id");
+    if (error || !data || data.length === 0) {
+      setSendError(error?.message || "Couldn't unsend that — the latest supabase/schema.sql needs to be run.");
+      return;
+    }
+    setSelectedMsgId(null);
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }
+
   async function send() {
     const body = draft.trim();
     if ((!body && !photoFile) || !myUserId) return;
@@ -222,7 +235,10 @@ export default function MessageThreadPage() {
           const isLastMine = mine && i === messages.length - 1;
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div className="max-w-[75%] space-y-1">
+              <div
+                className="max-w-[75%] space-y-1"
+                onClick={() => mine && !m.id.startsWith("pending-") && setSelectedMsgId((cur) => (cur === m.id ? null : m.id))}
+              >
                 {m.photo_url && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.photo_url} alt="" className="max-h-72 rounded-2xl object-cover" />
@@ -234,6 +250,19 @@ export default function MessageThreadPage() {
                     }`}
                   >
                     {m.body}
+                  </div>
+                )}
+                {mine && selectedMsgId === m.id && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        unsend(m.id);
+                      }}
+                      className="rounded-full bg-red-600/90 px-3 py-1 text-xs font-semibold text-white"
+                    >
+                      Unsend
+                    </button>
                   </div>
                 )}
                 {isLastMine && (

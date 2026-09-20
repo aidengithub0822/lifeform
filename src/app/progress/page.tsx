@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { compressImageForUpload } from "@/lib/imageUpload";
 import PullToRefresh from "@/components/PullToRefresh";
+import ProgressPhotoSheet from "@/components/ProgressPhotoSheet";
 import { localDateString } from "@/lib/timezone";
 import {
   LineChart,
@@ -54,6 +55,13 @@ export default function ProgressPage() {
   const [backfillTotal, setBackfillTotal] = useState(0);
   const [backfillDone, setBackfillDone] = useState(0);
   const backfillStarted = useRef(false);
+  const [openPhoto, setOpenPhoto] = useState<ProgressPhoto | null>(null);
+  const [editingMeasurementId, setEditingMeasurementId] = useState<string | null>(null);
+  const [editWeight, setEditWeight] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editingJournalId, setEditingJournalId] = useState<string | null>(null);
+  const [journalEditDraft, setJournalEditDraft] = useState("");
 
   async function analyzeOnePhoto(photoId: string) {
     try {
@@ -157,6 +165,40 @@ export default function ProgressPage() {
 
   async function deleteMeasurement(id: string) {
     await supabase.from("measurements").delete().eq("id", id);
+    await load();
+  }
+
+  async function saveMeasurementEdit(id: string) {
+    setEditError(null);
+    const w = editWeight.trim() === "" ? null : Number(editWeight);
+    if (w !== null && (!Number.isFinite(w) || w <= 0)) {
+      setEditError("Enter a valid weight");
+      return;
+    }
+    const { error } = await supabase
+      .from("measurements")
+      .update({ weight_lb: w, logged_at: editDate })
+      .eq("id", id);
+    if (error) {
+      setEditError(
+        /duplicate|unique/i.test(error.message) ? "You already have an entry for that date." : error.message
+      );
+      return;
+    }
+    setEditingMeasurementId(null);
+    await load();
+    fetch("/api/rank", { method: "POST" }).catch(() => {});
+  }
+
+  async function saveJournalEdit(id: string) {
+    const entry_text = journalEditDraft.trim();
+    if (!entry_text) return;
+    const { error } = await supabase.from("journal_entries").update({ entry_text }).eq("id", id);
+    if (error) {
+      setJournalError(error.message);
+      return;
+    }
+    setEditingJournalId(null);
     await load();
   }
 
@@ -331,22 +373,72 @@ export default function ProgressPage() {
         )}
         {history.length > 0 && (
           <div className="mt-1">
-            {history.map((m) => (
-              <div key={m.id} className="flex items-center justify-between border-b border-[#1a1a1d] py-3">
-                <div>
-                  <p className="text-sm font-medium tabular-nums text-[#f4f4f5]">
-                    {m.weight_lb != null ? `${m.weight_lb} lb` : "No weight logged"}
-                  </p>
-                  <p className="text-xs text-[#71717a]">{formatDate(m.logged_at)}</p>
+            {history.map((m) =>
+              editingMeasurementId === m.id ? (
+                <div key={m.id} className="space-y-2 border-b border-[#1a1a1d] py-3">
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={editWeight}
+                      onChange={(e) => setEditWeight(e.target.value)}
+                      placeholder="Weight (lb)"
+                      className="min-w-0 flex-1 rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+                    />
+                    <input
+                      type="date"
+                      value={editDate}
+                      max={localDateString(new Date())}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="rounded-lg border border-[#27272a] bg-[#111113] px-2 py-2 text-sm text-zinc-200 outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  {editError && <p className="text-xs text-red-400">{editError}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setEditingMeasurementId(null)}
+                      className="flex-1 rounded-lg bg-[#18181b] py-2 text-xs font-medium text-[#d4d4d8]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => saveMeasurementEdit(m.id)}
+                      className="flex-[2] rounded-lg bg-[#10b981] py-2 text-xs font-semibold text-[#052e1c]"
+                    >
+                      Save changes
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => deleteMeasurement(m.id)}
-                  className="text-xs font-medium text-[#52525b] active:opacity-70"
-                >
-                  Remove
-                </button>
-              </div>
-            ))}
+              ) : (
+                <div key={m.id} className="flex items-center justify-between border-b border-[#1a1a1d] py-3">
+                  <div>
+                    <p className="text-sm font-medium tabular-nums text-[#f4f4f5]">
+                      {m.weight_lb != null ? `${m.weight_lb} lb` : "No weight logged"}
+                    </p>
+                    <p className="text-xs text-[#71717a]">{formatDate(m.logged_at)}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => {
+                        setEditingMeasurementId(m.id);
+                        setEditWeight(m.weight_lb != null ? String(m.weight_lb) : "");
+                        setEditDate(m.logged_at.slice(0, 10));
+                        setEditError(null);
+                      }}
+                      className="text-xs font-medium text-[#71717a] active:text-emerald-400"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => deleteMeasurement(m.id)}
+                      className="text-xs font-medium text-[#52525b] active:opacity-70"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
           </div>
         )}
       </div>
@@ -377,14 +469,53 @@ export default function ProgressPage() {
               <div key={entry.id} className="border-b border-[#1a1a1d] py-3">
                 <div className="flex items-baseline justify-between gap-2">
                   <p className="text-xs font-medium text-[#52525b]">{formatDateTime(entry.created_at)}</p>
-                  <button
-                    onClick={() => deleteJournalEntry(entry.id)}
-                    className="shrink-0 text-xs font-medium text-[#52525b] active:opacity-70"
-                  >
-                    Remove
-                  </button>
+                  <div className="flex items-center gap-3">
+                    {editingJournalId !== entry.id && (
+                      <button
+                        onClick={() => {
+                          setEditingJournalId(entry.id);
+                          setJournalEditDraft(entry.entry_text);
+                        }}
+                        className="shrink-0 text-xs font-medium text-[#71717a] active:text-emerald-400"
+                      >
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteJournalEntry(entry.id)}
+                      className="shrink-0 text-xs font-medium text-[#52525b] active:opacity-70"
+                    >
+                      Remove
+                    </button>
+                  </div>
                 </div>
-                <p className="mt-1.5 whitespace-pre-wrap text-sm text-[#e4e4e7]">{entry.entry_text}</p>
+                {editingJournalId === entry.id ? (
+                  <div className="mt-2 space-y-2">
+                    <textarea
+                      value={journalEditDraft}
+                      onChange={(e) => setJournalEditDraft(e.target.value)}
+                      rows={3}
+                      className="w-full resize-none rounded-xl border border-[#27272a] bg-[#111113] px-3 py-2 text-sm outline-none focus:border-emerald-500"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setEditingJournalId(null)}
+                        className="flex-1 rounded-lg bg-[#18181b] py-2 text-xs font-medium text-[#d4d4d8]"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={() => saveJournalEdit(entry.id)}
+                        disabled={!journalEditDraft.trim()}
+                        className="flex-[2] rounded-lg bg-[#10b981] py-2 text-xs font-semibold text-[#052e1c] disabled:opacity-60"
+                      >
+                        Save changes
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-1.5 whitespace-pre-wrap text-sm text-[#e4e4e7]">{entry.entry_text}</p>
+                )}
               </div>
             ))}
           </div>
@@ -442,12 +573,14 @@ export default function ProgressPage() {
         <div className="mt-4 grid grid-cols-3 gap-2">
           {photos.map((p) => (
             <div key={p.id} className="relative">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={p.photo_url}
-                alt={`${p.angle} progress photo from ${p.taken_at}`}
-                className="aspect-square w-full rounded-xl object-cover"
-              />
+              <button onClick={() => setOpenPhoto(p)} className="block w-full" aria-label="Open photo to edit or delete">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={p.photo_url}
+                  alt={`${p.angle} progress photo from ${p.taken_at}`}
+                  className="aspect-square w-full rounded-xl object-cover"
+                />
+              </button>
               {p.ai_leanness_score != null && (
                 <span className="lf-ai-aura absolute right-1 top-1 rounded-full bg-black/80 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-emerald-300">
                   {p.ai_leanness_score}
@@ -485,6 +618,15 @@ export default function ProgressPage() {
           </div>
         )}
       </div>
+      {openPhoto && (
+        <ProgressPhotoSheet
+          photo={openPhoto}
+          onClose={() => setOpenPhoto(null)}
+          onChanged={() => {
+            load();
+          }}
+        />
+      )}
     </div>
     </PullToRefresh>
   );

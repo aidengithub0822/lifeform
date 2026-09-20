@@ -38,6 +38,7 @@ export default function GroupThreadPage() {
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [selectedMsgId, setSelectedMsgId] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
 
@@ -189,6 +190,18 @@ export default function GroupThreadPage() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  // Tap one of your own messages, then "Unsend" to delete it for everyone.
+  async function unsend(id: string) {
+    setSendError(null);
+    const { data, error } = await supabase.from("conversation_messages").delete().eq("id", id).select("id");
+    if (error || !data || data.length === 0) {
+      setSendError(error?.message || "Couldn't unsend that message.");
+      return;
+    }
+    setSelectedMsgId(null);
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+  }
+
   async function send() {
     const body = draft.trim();
     if ((!body && !photoFile) || !myUserId) return;
@@ -239,6 +252,14 @@ export default function GroupThreadPage() {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ toUserId: m.user_id, title, body: body || "📷 Photo", url: `/messages/group/${conversationId}` }),
+        }).catch(() => {});
+      }
+      // Anyone @tagged in the message also gets an in-app "tagged you" notification.
+      if (body.includes("@")) {
+        fetch("/api/mentions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: body, url: `/messages/group/${conversationId}`, conversationId }),
         }).catch(() => {});
       }
     } catch (err) {
@@ -410,7 +431,10 @@ export default function GroupThreadPage() {
             : [];
           return (
             <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-              <div className="max-w-[75%] space-y-1">
+              <div
+                className="max-w-[75%] space-y-1"
+                onClick={() => mine && !m.id.startsWith("pending-") && setSelectedMsgId((cur) => (cur === m.id ? null : m.id))}
+              >
                 {!mine && <p className="pl-1 text-[11px] font-medium text-zinc-500">{m.sender_username ?? "someone"}</p>}
                 {m.photo_url && (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -423,6 +447,19 @@ export default function GroupThreadPage() {
                     }`}
                   >
                     {m.body}
+                  </div>
+                )}
+                {mine && selectedMsgId === m.id && (
+                  <div className="flex justify-end">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        unsend(m.id);
+                      }}
+                      className="rounded-full bg-red-600/90 px-3 py-1 text-xs font-semibold text-white"
+                    >
+                      Unsend
+                    </button>
                   </div>
                 )}
                 {isLastMine && (

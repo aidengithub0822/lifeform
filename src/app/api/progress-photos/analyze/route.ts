@@ -2,9 +2,10 @@ import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
+import { AI_MODEL } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 // POST /api/progress-photos/analyze { photoId } — runs a one-time AI vision
 // pass over a progress photo (see src/lib/progressPhotoAnalysis.ts for the

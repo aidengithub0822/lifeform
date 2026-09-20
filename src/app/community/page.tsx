@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { compressImageForUpload } from "@/lib/imageUpload";
 import AuthorLine from "@/components/AuthorLine";
@@ -9,11 +10,14 @@ import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
 import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
+import DoubleTapLike from "@/components/DoubleTapLike";
+import NotificationsBell from "@/components/NotificationsBell";
 import { CameraIcon, CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
   const supabase = createClient();
+  const router = useRouter();
   const [posts, setPosts] = useState<CommunityPost[] | null>(null);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
   const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
@@ -202,13 +206,33 @@ export default function CommunityPage() {
   async function saveEdit(id: string) {
     const message = editDraft.trim();
     if (!message) return;
-    await fetch(`/api/admin/community/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message }),
-    });
+    const target = posts?.find((p) => p.id === id);
+    // Authors edit through the normal (moderated) route; developer mode can
+    // edit anyone's post through the admin route.
+    const viaAdmin = isAdmin && !!target && target.user_id !== myUserId;
+    try {
+      const res = await fetch(viaAdmin ? `/api/admin/community/${id}` : `/api/community/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        setError(b.error || "Couldn't save that edit");
+        return;
+      }
+    } catch {
+      setError("Couldn't reach the server");
+      return;
+    }
+    setError(null);
     setEditingId(null);
     await load();
+  }
+
+  // Double-tap only ever likes (like Instagram/TikTok) — it never unlikes.
+  function likePost(postId: string) {
+    if (!myLikes[postId]) toggleLike(postId);
   }
 
   async function sharePost(post: CommunityPost) {
@@ -232,7 +256,10 @@ export default function CommunityPage() {
   return (
     <PullToRefresh onRefresh={load}>
       <div className="mx-auto max-w-md px-5 py-8">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Community</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Community</h1>
+          <NotificationsBell />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">Everything the lifeform community is sharing, moderated so it stays worth reading.</p>
 
         <div className="mt-5 flex gap-3 rounded-2xl border border-zinc-800/80 bg-zinc-900/60 p-3.5">
@@ -324,13 +351,18 @@ export default function CommunityPage() {
                     </div>
                   </div>
                 ) : (
-                  <Link href={`/community/${post.id}`} className="block">
+                  <DoubleTapLike
+                    disabled={!myUserId}
+                    onLike={() => likePost(post.id)}
+                    onSingleTap={() => router.push(`/community/${post.id}`)}
+                    className="block"
+                  >
                     {post.message && <MentionText text={post.message} className="mt-2 text-[15px] leading-relaxed text-zinc-100" />}
                     {post.photo_url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={post.photo_url} alt="" className="mt-2.5 max-h-96 w-full rounded-2xl object-cover" />
                     )}
-                  </Link>
+                  </DoubleTapLike>
                 )}
 
                 {!isEditing && (
@@ -350,7 +382,7 @@ export default function CommunityPage() {
                     <button onClick={() => sharePost(post)} className="flex items-center gap-1.5 text-zinc-500 active:opacity-60">
                       <ShareIcon className="h-[18px] w-[18px]" />
                     </button>
-                    {isAdmin && (
+                    {canDelete && (
                       <button onClick={() => startEdit(post)} className="ml-auto text-xs font-medium text-zinc-600 active:opacity-60">
                         Edit
                       </button>
@@ -358,7 +390,7 @@ export default function CommunityPage() {
                     {canDelete && (
                       <button
                         onClick={() => (isAdmin && post.user_id !== myUserId ? deleteAsAdmin(post.id) : deleteOwn(post.id))}
-                        className={`text-xs font-medium text-zinc-600 active:opacity-60 ${isAdmin ? "" : "ml-auto"}`}
+                        className="text-xs font-medium text-zinc-600 active:opacity-60"
                       >
                         Delete
                       </button>

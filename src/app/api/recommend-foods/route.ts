@@ -3,9 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { GROCERY_BOUNDS, clampPrice } from "@/lib/priceSanity";
 import type { Goal } from "@/lib/types";
+import { AI_MODEL } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 const FOODS_TOOL = {
   name: "recommend_foods",

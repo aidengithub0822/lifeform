@@ -299,8 +299,8 @@ dev` for real (not just to build):
 - `SUPABASE_SERVICE_ROLE_KEY` (used only by `src/lib/supabase/admin.ts` for
   the widget endpoint)
 - `ANTHROPIC_API_KEY`
-- `ANTHROPIC_MODEL` (optional — routes fall back to
-  `claude-sonnet-4-5-20250929` if unset)
+- `ANTHROPIC_MODEL` (optional — falls back to `claude-sonnet-4-6` if unset;
+  see `src/lib/ai.ts`, which also retries `claude-sonnet-5` if the model 404s)
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — Web Push (see
   "Push notifications" below). Generate a pair with
   `npx web-push generate-vapid-keys`.
@@ -337,3 +337,42 @@ immediately, and on iPhone once the PWA is added to the Home Screen (iOS
   it isn't.
 - `public/sw.js` — `push` event shows the notification; `notificationclick`
   focuses an open tab (or opens one) at the payload's `url`.
+
+## Meal diary, notifications, coach history (added on the `chat2` branch)
+
+Re-run `supabase/schema.sql` in Supabase Studio after pulling these — every
+addition at the bottom is re-runnable. The app degrades gracefully until then
+(food logging retries without `meal`, the bell just shows no badge).
+
+- **Food diary** (`src/components/MealDiary.tsx`, `src/lib/meals.ts`): Home's
+  "Today" is MyFitnessPal-style — Breakfast / Lunch / Dinner / Snacks
+  sections with per-meal calories and a per-meal "+ Add food". `food_logs.meal`
+  stores the slot; rows without one are guessed from time of day
+  (`mealOfLog`). `/?date=YYYY-MM-DD` shows a past day (the ‹ › arrows).
+  `insertFoodLog()` retries without `meal` if the column doesn't exist yet.
+- **/scan** has a meal chip row, and a **Recent** tab: the newest log of each
+  distinct food, most recent first, re-loggable in one tap (0.5×–2×). Photo
+  and Type-it modes are unchanged. `/api/scan-food` now normalizes the AI
+  output (score is clamped 0-100 — a 105 used to violate the DB check and fail
+  the save) and returns real error causes instead of one generic message.
+- **Editing/deleting your own stuff**: food logs (`FoodLogItem`), recipes,
+  weight entries + journal (Progress), progress photos
+  (`ProgressPhotoSheet` — also removes the stored file and refreshes rank),
+  lifts (`LiftHistoryPanel`, Fitness → "My lifts"), community posts + replies
+  (`PATCH /api/community/[id]` and `.../comments/[commentId]`, moderated),
+  DMs and group messages (tap your own message → Unsend), Coach chats.
+- **Double-tap to like** (`DoubleTapLike.tsx`): community feed, post detail
+  and the profile photo lightbox. Only ever likes, never unlikes. In the feed
+  a single tap still opens the post (after a 300ms wait for a second tap).
+- **Notifications** (`src/lib/notify.ts`, `notifications` table, bell on Home
+  + Community, `/notifications`): tags and replies now write an in-app
+  notification AND send push (push alone only reached people who'd installed
+  the PWA and opted in). @mention matching is case-insensitive. Group-chat
+  messages call `/api/mentions` after sending. Rows are inserted with the
+  service-role client only (no insert RLS policy — can't be forged).
+- **Coach history**: `coach_conversations` + `coach_messages`; `/api/coach`
+  saves each turn server-side and returns `conversationId`; `/coach` reopens
+  the latest chat, has New / History (open, delete). Replies render through
+  `CoachReply.tsx` (paragraph spacing, bullets, bold) and the system prompt
+  asks for short blank-line-separated paragraphs.
+

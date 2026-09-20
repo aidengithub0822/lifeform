@@ -19,9 +19,10 @@ import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
 import { todayLocal } from "@/lib/timezone";
 import { resolveUserTimezone } from "@/lib/requestTimezone";
 import type { Goal, Measurement, TrainingPlan, Lift, ProgressPhoto, FoodLog } from "@/lib/types";
+import { AI_MODEL, createWithFallback, explainAiError } from "@/lib/ai";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = process.env.ANTHROPIC_MODEL || "claude-sonnet-4-5-20250929";
+const MODEL = AI_MODEL;
 
 type MeasurementRow = Pick<Measurement, "id" | "logged_at" | "weight_lb">;
 type FoodLogRow = Pick<FoodLog, "id" | "logged_at" | "food_name" | "calories" | "protein_g" | "score">;
@@ -228,7 +229,9 @@ Your job is strictly limited to helping this user with: nutrition and diet quest
 
 If the user asks about anything outside that scope — general knowledge, current events, coding, unrelated personal advice, or any other off-topic request — politely decline in 1 sentence and steer the conversation back to fitness/nutrition. Do not answer off-topic questions even if asked persistently or if the user claims a special exception. You are not a general-purpose assistant in this context.
 
-Keep replies conversational, encouraging, and concise (a few sentences unless the user asks for something more detailed like a workout plan, in which case give real structure: exercise, sets, reps, and RIR target per the ranges above). You are not a doctor — for medical concerns, suggest they see a professional.`;
+Keep replies conversational, encouraging, and concise (a few sentences unless the user asks for something more detailed like a workout plan, in which case give real structure: exercise, sets, reps, and RIR target per the ranges above). You are not a doctor — for medical concerns, suggest they see a professional.
+
+FORMATTING (this is shown in a small phone chat bubble, so it must be easy to read): never write a wall of text. Put a blank line between every idea — each paragraph is 1-3 short sentences. Use "- " bullet lines for lists of foods, exercises, or steps, one item per line, with a blank line before the list. Bold (**like this**) only the one or two numbers or terms that matter most. No headings, no tables, no emoji spam.`;
 }
 
 const VALID_RANK_TIERS = RANK_TIERS.map((t) => t.tier);
@@ -453,7 +456,10 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: "Not signed in" }, { status: 401 });
 
   const body = await request.json();
-  const { messages } = body as { messages: { role: "user" | "assistant"; content: string }[] };
+  const { messages, conversationId } = body as {
+    messages: { role: "user" | "assistant"; content: string }[];
+    conversationId?: string | null;
+  };
 
   if (!Array.isArray(messages) || messages.length === 0) {
     return NextResponse.json({ error: "No message provided" }, { status: 400 });
@@ -562,13 +568,16 @@ export async function POST(request: Request) {
 
   try {
     for (let round = 0; round < 6; round++) {
-      const response = await anthropic.messages.create({
-        model: MODEL,
-        max_tokens: 1200,
-        system,
-        tools: TOOLS,
-        messages: workingMessages,
-      });
+      const response = await createWithFallback(
+        anthropic,
+        {
+          max_tokens: 1200,
+          system,
+          tools: TOOLS,
+          messages: workingMessages,
+        },
+        MODEL
+      );
 
       const toolUses = response.content.filter((c): c is Anthropic.ToolUseBlock => c.type === "tool_use");
 
@@ -592,9 +601,54 @@ export async function POST(request: Request) {
       }
     }
 
-    return NextResponse.json({ reply });
+    // Save this turn so the chat is still there next time (best-effort — if
+    // the history tables aren't created yet, chatting still works).
+    const lastUser = [...messages].reverse().find((m) => m.role === "user");
+    const savedConversationId = await persistTurn(supabase, user.id, conversationId ?? null, lastUser?.content ?? "", reply);
+
+    return NextResponse.json({ reply, conversationId: savedConversationId });
   } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Coach is unavailable right now. Try again in a moment." }, { status: 500 });
+    console.error("coach failed:", err);
+    const { status, message } = explainAiError(err);
+    return NextResponse.json({ error: `Coach is unavailable right now. ${message}` }, { status });
+  }
+}
+
+// Appends one user message + Coach's reply to a saved conversation, creating
+// the conversation (titled from the first message) if this is a new chat.
+// Returns the conversation id, or null if history isn't available.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function persistTurn(supabase: any, userId: string, conversationId: string | null, userText: string, reply: string) {
+  try {
+    if (!userText) return conversationId;
+    let id = conversationId;
+    if (id) {
+      const { data } = await supabase
+        .from("coach_conversations")
+        .select("id")
+        .eq("id", id)
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!data) id = null;
+    }
+    if (!id) {
+      const title = userText.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
+      const { data, error } = await supabase
+        .from("coach_conversations")
+        .insert({ user_id: userId, title })
+        .select("id")
+        .single();
+      if (error || !data) return null;
+      id = data.id as string;
+    }
+    const now = Date.now();
+    await supabase.from("coach_messages").insert([
+      { conversation_id: id, user_id: userId, role: "user", content: userText, created_at: new Date(now).toISOString() },
+      { conversation_id: id, user_id: userId, role: "assistant", content: reply, created_at: new Date(now + 1).toISOString() },
+    ]);
+    await supabase.from("coach_conversations").update({ updated_at: new Date().toISOString() }).eq("id", id);
+    return id;
+  } catch {
+    return conversationId;
   }
 }

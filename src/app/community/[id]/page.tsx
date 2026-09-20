@@ -9,6 +9,7 @@ import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
 import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
+import DoubleTapLike from "@/components/DoubleTapLike";
 import { ChevronIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
 
@@ -23,6 +24,7 @@ interface ThreadProps {
   onPosted: () => void;
   deleteOwnComment: (id: string) => void;
   deleteAsAdminComment: (id: string) => void;
+  onEdited: () => void;
 }
 
 // Fully self-contained per node — its own reply-box open/draft/posting/error
@@ -41,7 +43,12 @@ function CommentNode({
   onPosted,
   deleteOwnComment,
   deleteAsAdminComment,
+  onEdited,
 }: ThreadProps) {
+  const [editing, setEditing] = useState(false);
+  const [editDraft, setEditDraft] = useState(comment.body);
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [replying, setReplying] = useState(false);
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -51,6 +58,31 @@ function CommentNode({
   const canDelete = isAdmin || comment.user_id === myUserId;
   const a = authors[comment.user_id];
   const indent = Math.min(depth, 4) * 16;
+
+  async function saveCommentEdit() {
+    const body = editDraft.trim();
+    if (!body) return;
+    setEditBusy(true);
+    setEditError(null);
+    try {
+      const res = await fetch(`/api/community/${postId}/comments/${comment.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ body }),
+      });
+      const resBody = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setEditError(resBody.error || "Couldn't save that edit");
+        return;
+      }
+      setEditing(false);
+      onEdited();
+    } catch {
+      setEditError("Couldn't reach the server");
+    } finally {
+      setEditBusy(false);
+    }
+  }
 
   async function submitReply() {
     const body = draft.trim();
@@ -89,7 +121,39 @@ function CommentNode({
           rank={a?.rank}
           createdAt={comment.created_at}
         />
-        <MentionText text={comment.body} className="mt-1.5 text-sm leading-relaxed text-zinc-200" />
+        {editing ? (
+          <div className="mt-1.5 space-y-1.5">
+            <MentionTextarea
+              value={editDraft}
+              onChange={setEditDraft}
+              rows={2}
+              autoFocus
+              className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none focus:border-zinc-600"
+            />
+            <div className="flex items-center justify-end gap-2">
+              {editError && <p className="mr-auto text-xs text-red-400">{editError}</p>}
+              <button
+                onClick={() => {
+                  setEditing(false);
+                  setEditError(null);
+                  setEditDraft(comment.body);
+                }}
+                className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveCommentEdit}
+                disabled={editBusy || !editDraft.trim()}
+                className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
+              >
+                {editBusy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <MentionText text={comment.body} className="mt-1.5 text-sm leading-relaxed text-zinc-200" />
+        )}
         <div className="mt-1.5 flex items-center gap-3">
           <button
             onClick={() => {
@@ -100,6 +164,11 @@ function CommentNode({
           >
             Reply
           </button>
+          {comment.user_id === myUserId && !editing && (
+            <button onClick={() => setEditing(true)} className="text-xs font-medium text-zinc-600 active:opacity-60">
+              Edit
+            </button>
+          )}
           {canDelete && (
             <button
               onClick={() => (isAdmin && comment.user_id !== myUserId ? deleteAsAdminComment(comment.id) : deleteOwnComment(comment.id))}
@@ -152,6 +221,7 @@ function CommentNode({
               onPosted={onPosted}
               deleteOwnComment={deleteOwnComment}
               deleteAsAdminComment={deleteAsAdminComment}
+              onEdited={onEdited}
             />
           ))}
         </div>
@@ -176,6 +246,10 @@ export default function CommunityThreadPage() {
   const [likeCount, setLikeCount] = useState(0);
   const [likedByMe, setLikedByMe] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
+  const [editingPost, setEditingPost] = useState(false);
+  const [postDraft, setPostDraft] = useState("");
+  const [postEditBusy, setPostEditBusy] = useState(false);
+  const [postEditError, setPostEditError] = useState<string | null>(null);
 
   const [reply, setReply] = useState("");
   const [posting, setPosting] = useState(false);
@@ -280,6 +354,36 @@ export default function CommunityThreadPage() {
     setLikeBusy(false);
   }
 
+  // Double-tap only ever likes (like Instagram/TikTok) — it never unlikes.
+  function likePost() {
+    if (!likedByMe) toggleLike();
+  }
+
+  async function savePostEdit() {
+    if (!post) return;
+    setPostEditBusy(true);
+    setPostEditError(null);
+    try {
+      const viaAdmin = isAdmin && post.user_id !== myUserId;
+      const res = await fetch(viaAdmin ? `/api/admin/community/${post.id}` : `/api/community/${post.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: postDraft }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setPostEditError(b.error || "Couldn't save that edit");
+        return;
+      }
+      setEditingPost(false);
+      await load();
+    } catch {
+      setPostEditError("Couldn't reach the server");
+    } finally {
+      setPostEditBusy(false);
+    }
+  }
+
   async function deleteOwnComment(id: string) {
     await supabase.from("community_comments").delete().eq("id", id);
     await load();
@@ -358,10 +462,43 @@ export default function CommunityThreadPage() {
             rank={authors[post.user_id]?.rank}
             createdAt={post.created_at}
           />
-          {post.message && <MentionText text={post.message} className="mt-2.5 text-[15px] leading-relaxed text-zinc-100" />}
-          {post.photo_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-2xl object-cover" />
+          {editingPost ? (
+            <div className="mt-2.5 space-y-2">
+              <MentionTextarea
+                value={postDraft}
+                onChange={setPostDraft}
+                rows={3}
+                autoFocus
+                className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-[15px] text-zinc-100 outline-none focus:border-zinc-600"
+              />
+              <div className="flex items-center justify-end gap-2">
+                {postEditError && <p className="mr-auto text-xs text-red-400">{postEditError}</p>}
+                <button
+                  onClick={() => {
+                    setEditingPost(false);
+                    setPostEditError(null);
+                  }}
+                  className="rounded-full px-3 py-1 text-xs font-medium text-zinc-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={savePostEdit}
+                  disabled={postEditBusy}
+                  className="rounded-full bg-zinc-50 px-3.5 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
+                >
+                  {postEditBusy ? "Saving…" : "Save"}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <DoubleTapLike disabled={!myUserId} onLike={likePost}>
+              {post.message && <MentionText text={post.message} className="mt-2.5 text-[15px] leading-relaxed text-zinc-100" />}
+              {post.photo_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={post.photo_url} alt="" className="mt-2.5 max-h-[28rem] w-full rounded-2xl object-cover" />
+              )}
+            </DoubleTapLike>
           )}
           <div className="mt-3 flex items-center gap-4">
             <button
@@ -376,9 +513,22 @@ export default function CommunityThreadPage() {
               <ShareIcon className="h-[18px] w-[18px]" />
             </button>
             {canDeletePost && (
-              <button onClick={deletePost} className="ml-auto text-xs font-medium text-zinc-600 active:opacity-60">
-                Delete post
-              </button>
+              <div className="ml-auto flex items-center gap-4">
+                {!editingPost && (
+                  <button
+                    onClick={() => {
+                      setPostDraft(post.message);
+                      setEditingPost(true);
+                    }}
+                    className="text-xs font-medium text-zinc-600 active:opacity-60"
+                  >
+                    Edit post
+                  </button>
+                )}
+                <button onClick={deletePost} className="text-xs font-medium text-zinc-600 active:opacity-60">
+                  Delete post
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -424,6 +574,7 @@ export default function CommunityThreadPage() {
                 onPosted={load}
                 deleteOwnComment={deleteOwnComment}
                 deleteAsAdminComment={deleteAsAdminComment}
+                onEdited={load}
               />
             ))}
           </div>
