@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
@@ -13,12 +13,39 @@ export default function SignupPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
+  const [resendIn, setResendIn] = useState(0);
+  const [resendMsg, setResendMsg] = useState<string | null>(null);
+
+  // Where the confirmation link should land: this deployment's own callback,
+  // not whatever the Supabase "Site URL" happens to be set to.
+  const redirectTo = () => `${window.location.origin}/auth/callback`;
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const t = setTimeout(() => setResendIn((n) => n - 1), 1000);
+    return () => clearTimeout(t);
+  }, [resendIn]);
+
+  async function resend() {
+    setResendMsg(null);
+    setResendIn(30);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email,
+      options: { emailRedirectTo: redirectTo() },
+    });
+    setResendMsg(error ? error.message : "Sent again — check your inbox and spam folder.");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirectTo() },
+    });
     setLoading(false);
     if (error) {
       setError(error.message);
@@ -40,6 +67,14 @@ export default function SignupPage() {
         <p className="text-sm text-zinc-400">
           We sent a confirmation link to {email}. Tap it, then come back and log in.
         </p>
+        <button
+          onClick={resend}
+          disabled={resendIn > 0}
+          className="mt-5 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm font-semibold text-zinc-200 disabled:opacity-50"
+        >
+          {resendIn > 0 ? `Resend email (${resendIn}s)` : "Didn't get a link? Resend email"}
+        </button>
+        {resendMsg && <p className="mt-3 text-xs text-zinc-400">{resendMsg}</p>}
         <Link href="/login" className="mt-6 text-emerald-400">
           Back to login
         </Link>
