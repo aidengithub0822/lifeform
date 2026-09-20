@@ -30,7 +30,7 @@ export async function proxy(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const publicPaths = ["/login", "/signup", "/auth/callback"];
+  const publicPaths = ["/login", "/signup", "/auth/callback", "/install"];
   const isPublic = publicPaths.some((p) => request.nextUrl.pathname.startsWith(p));
   // Every /api/* route already does its own auth check (a cookie session,
   // the dev-mode admin cookie, or — for /api/widget specifically — an

@@ -104,7 +104,7 @@ const tabs = [
 
 export default function BottomNav() {
   const pathname = usePathname();
-  const hidden = ["/login", "/signup", "/onboarding", "/auth"].some((p) =>
+  const hidden = ["/login", "/signup", "/onboarding", "/auth", "/install"].some((p) =>
     pathname.startsWith(p)
   );
   const [isAdmin, setIsAdmin] = useState(false);

@@ -68,6 +68,17 @@ export async function GET(request: Request) {
 
   // Last sign-in comes from Supabase Auth (service role only). Best-effort:
   // if the lookup fails the list still renders, just without that column.
+  // Who has push notifications on: anyone with at least one saved device
+  // subscription. Best-effort — if the table can't be read, everyone shows as
+  // "unknown" (null) rather than "off".
+  let pushUsers: Set<string> | null = null;
+  try {
+    const { data: subs, error: subsErr } = await admin.from("push_subscriptions").select("user_id").limit(20000);
+    if (!subsErr) pushUsers = new Set((subs ?? []).map((s: { user_id: string }) => s.user_id));
+  } catch {
+    pushUsers = null;
+  }
+
   const lastSignIn = new Map<string, string | null>();
   const bannedUntil = new Map<string, string | null>();
   try {
@@ -96,6 +107,7 @@ export async function GET(request: Request) {
       created_at: p.created_at,
       last_sign_in_at: lastSignIn.get(p.user_id) ?? null,
       bypass_moderation: p.bypass_moderation === true,
+      push_enabled: pushUsers ? pushUsers.has(p.user_id) : null,
       banned_until: (() => {
         const b = bannedUntil.get(p.user_id);
         return b && Date.parse(b) > Date.now() ? b : null;

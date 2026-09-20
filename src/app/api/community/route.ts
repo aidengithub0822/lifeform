@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { moderate, moderateImage } from "@/lib/moderate";
 import { getModerationContext, isDeveloper } from "@/lib/moderationAccess";
 import { isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
-import { notifyMentions } from "@/lib/notify";
+import { notifyDevelopers, notifyMentions } from "@/lib/notify";
 import type { CommunityPost } from "@/lib/types";
 
 export async function GET() {
@@ -131,6 +131,14 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // The developer hears about every new community post.
+  await notifyDevelopers({
+    actorId: user.id,
+    actorUsername: profile?.username ?? null,
+    preview: message || (videoUrl ? "🎥 Video" : "📷 Photo"),
+    url: `/community/${inserted.id}`,
+  });
 
   if (message) {
     await notifyMentions({

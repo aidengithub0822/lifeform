@@ -14,7 +14,7 @@ import { BellIcon } from "@/components/icons";
 // Skipped where the browser can't do push at all, and where permission was
 // already blocked (the browser won't let us ask again).
 
-const EXEMPT_PREFIXES = ["/login", "/signup", "/auth"];
+const EXEMPT_PREFIXES = ["/login", "/signup", "/auth", "/install"];
 const DISMISS_KEY = "lf_push_prompt_dismissed";
 
 type Mode = "ask" | "install" | "blocked-note" | null;

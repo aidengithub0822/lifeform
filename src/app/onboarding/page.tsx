@@ -242,12 +242,27 @@ export default function OnboardingPage() {
         <Field label={`Current weight: ${weight} lb`}>
           <input
             type="range"
-            min={100}
-            max={260}
-            value={weight}
+            min={80}
+            max={700}
+            value={Math.min(700, Math.max(80, weight))}
             onChange={(e) => setWeight(Number(e.target.value))}
             className="w-full"
           />
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={50}
+              max={1000}
+              value={weight}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) setWeight(Math.max(0, Math.min(1000, Math.round(n))));
+              }}
+              className="w-28 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500"
+            />
+            <span className="text-xs text-zinc-500">lb — type an exact weight, or slide (up to 700)</span>
+          </div>
         </Field>
 
         <Field label={`Height: ${Math.floor(height / 12)}'${height % 12}"`}>
@@ -308,7 +323,7 @@ export default function OnboardingPage() {
 
         <button
           onClick={handleSave}
-          disabled={saving}
+          disabled={saving || weight < 50 || weight > 1000}
           className="w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
         >
           {saving ? "Saving..." : "Start tracking"}

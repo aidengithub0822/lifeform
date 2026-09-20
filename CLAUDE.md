@@ -430,3 +430,21 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   open for signed-in users with a username and no push subscription; "Not now"
   hides it until the app is reopened; new accounts see it right after picking a
   username (`USERNAME_SET_EVENT`).
+
+## Android install, weight range, dev visibility
+
+- **Android / home screen**: `public/manifest.json` has separate `any` and
+  `maskable` icons (`icon-maskable-512.png` keeps the logo in the 68% safe zone),
+  app shortcuts, and `id`/`scope`; layout adds `mobile-web-app-capable`; push
+  notifications use a monochrome `badge-96.png` (Android status-bar icons are
+  alpha-only). `InstallCapture` (root layout) grabs the browser's
+  `beforeinstallprompt`; `InstallGuide` (used by the public `/install` page and
+  linked from Settings + the login page) shows an Install button when available
+  plus Android (Chrome / Samsung / Firefox) and iPhone steps. `/install` is in the
+  proxy's public paths and hidden from the nav/gates.
+- **Weight**: onboarding slider is 80–700 lb with a typed exact-weight box
+  (max 1000); nothing else in the app or DB caps body weight.
+- **Dev visibility**: `/api/admin/users` returns `push_enabled` (has a row in
+  `push_subscriptions`); Dev page shows 🔔 On / 🔕 Off per user and an "on N of M"
+  bar. `notifyDevelopers()` (notify.ts) pings every account wearing the reserved
+  dev color whenever anyone posts in the community.

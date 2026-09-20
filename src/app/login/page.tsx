@@ -66,6 +66,11 @@ export default function LoginPage() {
           Sign up
         </Link>
       </p>
+      <p className="mt-3 text-center text-xs text-zinc-500">
+        <Link href="/install" className="text-zinc-400 underline">
+          Add lifeform to your home screen (Android &amp; iPhone)
+        </Link>
+      </p>
     </div>
   );
 }

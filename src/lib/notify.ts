@@ -1,13 +1,14 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendPushToUser } from "@/lib/push";
 import { extractMentions } from "@/lib/mentions";
+import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 
 // Server-only. One place that turns "something happened to you" into BOTH an
 // in-app notification (the row behind the bell on Home/Community, which works
 // for everyone) and a push notification (only for people who installed the
 // app and opted in). Push alone is why tags used to seem to do nothing.
 
-export type NotificationType = "mention" | "reply" | "message" | "pin" | "announcement";
+export type NotificationType = "mention" | "reply" | "message" | "pin" | "announcement" | "post";
 
 export interface NotifyInput {
   actorId: string | null;
@@ -75,6 +76,41 @@ export async function resolveMentionedUserIds(
     })
   );
   return [...new Set(found.filter((id): id is string => !!id && !skip.has(id)))];
+}
+
+/**
+ * Pings the developer account(s) — profiles wearing the reserved dev name
+ * color — that someone posted in the community. Never notifies the poster
+ * themselves (notifyUser skips the actor), and never throws.
+ */
+export async function notifyDevelopers(opts: {
+  actorId: string;
+  actorUsername: string | null;
+  preview: string;
+  url: string;
+}): Promise<void> {
+  try {
+    const admin = createAdminClient();
+    const { data } = await admin.from("profiles").select("user_id").eq("name_color", RESERVED_DEV_COLOR).limit(10);
+    const name = opts.actorUsername || "Someone";
+    await Promise.all(
+      (data ?? [])
+        .map((r: { user_id: string }) => r.user_id)
+        .filter((id: string) => id !== opts.actorId)
+        .map((id: string) =>
+          notifyUser(id, {
+            actorId: opts.actorId,
+            actorUsername: opts.actorUsername,
+            type: "post",
+            title: `${name} posted in community 📝`,
+            body: opts.preview,
+            url: opts.url,
+          })
+        )
+    );
+  } catch (err) {
+    console.error("notifyDevelopers failed:", err);
+  }
 }
 
 const EVERYONE_RE = /(^|[^a-zA-Z0-9_])@everyone(?![a-zA-Z0-9_])/i;

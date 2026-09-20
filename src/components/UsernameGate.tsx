@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-const EXEMPT_PREFIXES = ["/login", "/signup", "/onboarding", "/auth"];
+const EXEMPT_PREFIXES = ["/login", "/signup", "/onboarding", "/auth", "/install"];
 
 /**
  * Global backstop for the "every account needs a username" rule. The main

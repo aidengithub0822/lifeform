@@ -5,6 +5,7 @@ import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import Splash from "@/components/Splash";
 import UsernameGate from "@/components/UsernameGate";
 import NotificationPrompt from "@/components/NotificationPrompt";
+import InstallCapture from "@/components/InstallCapture";
 import TimezoneSync from "@/components/TimezoneSync";
 
 export const metadata: Metadata = {
@@ -18,6 +19,8 @@ export const metadata: Metadata = {
     // kept short and lowercase per the intended look.
     title: "lifeform",
   },
+  // Android Chrome's equivalent of apple-mobile-web-app-capable (Next emits the Apple one).
+  other: { "mobile-web-app-capable": "yes" },
   icons: {
     apple: "/apple-touch-icon.png",
     icon: "/icons/icon-192.png",
@@ -44,6 +47,7 @@ export default function RootLayout({
         <Splash />
         <UsernameGate />
         <NotificationPrompt />
+        <InstallCapture />
         <TimezoneSync />
         {children}
         <BottomNav />

@@ -302,6 +302,17 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
 
                   <PushOptIn />
 
+                  <a
+                    href="/install"
+                    className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-zinc-900 p-4"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-zinc-300">Add to home screen</p>
+                      <p className="mt-0.5 text-xs text-zinc-500">Install lifeform on Android or iPhone</p>
+                    </div>
+                    <span className="text-zinc-500">›</span>
+                  </a>
+
                   <div className="rounded-2xl border border-zinc-800 bg-zinc-900 p-4">
                     <p className="text-sm font-semibold text-zinc-300">Current goal</p>
                     <div className="mt-3 grid grid-cols-2 gap-3 text-sm">

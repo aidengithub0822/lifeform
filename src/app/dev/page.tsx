@@ -18,6 +18,8 @@ interface DevUser {
   last_sign_in_at: string | null;
   bypass_moderation: boolean;
   banned_until: string | null;
+  /** true = has at least one push-enabled device, false = none, null = couldn't tell. */
+  push_enabled: boolean | null;
 }
 
 type UserAction =
@@ -163,6 +165,8 @@ export default function DevPage() {
   const newSinceVisit = users && Number.isFinite(baselineMs) ? users.filter((u) => Date.parse(u.created_at) > baselineMs) : [];
   const last24h = users ? users.filter((u) => now - Date.parse(u.created_at) < DAY_MS).length : 0;
   const last7d = users ? users.filter((u) => now - Date.parse(u.created_at) < 7 * DAY_MS).length : 0;
+  const pushKnown = users ? users.some((u) => u.push_enabled !== null) : false;
+  const pushOn = users ? users.filter((u) => u.push_enabled === true).length : 0;
 
   const q = query.trim().toLowerCase();
   const shown = (users ?? []).filter((u) => !q || u.username.toLowerCase().includes(q));
@@ -230,6 +234,23 @@ export default function DevPage() {
             ))}
           </div>
 
+          {pushKnown && (
+            <div className="mt-2.5 rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3">
+              <div className="flex items-baseline justify-between">
+                <p className="text-sm font-semibold text-[#e4e4e7]">Notifications on</p>
+                <p className="text-sm font-bold text-[#f4f4f5]">
+                  {pushOn} <span className="font-medium text-[#71717a]">of {users.length}</span>
+                </p>
+              </div>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${users.length ? Math.round((pushOn / users.length) * 100) : 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -272,6 +293,15 @@ export default function DevPage() {
                         {banned && (
                           <span className="shrink-0 rounded-full bg-red-500/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
                             Banned
+                          </span>
+                        )}
+                        {u.push_enabled !== null && (
+                          <span
+                            className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${
+                              u.push_enabled ? "bg-sky-500/20 text-sky-300" : "bg-zinc-800 text-zinc-500"
+                            }`}
+                          >
+                            {u.push_enabled ? "🔔 On" : "🔕 Off"}
                           </span>
                         )}
                         {u.bypass_moderation && (
