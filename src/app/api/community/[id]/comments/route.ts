@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
+import { getModerationContext, isDeveloper } from "@/lib/moderationAccess";
 import { notifyMentions, notifyUser } from "@/lib/notify";
 import type { CommunityComment } from "@/lib/types";
 
@@ -39,7 +40,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!text) return NextResponse.json({ error: "Reply can't be empty" }, { status: 400 });
   if (text.length > 1000) return NextResponse.json({ error: "Keep it under 1000 characters" }, { status: 400 });
 
-  const { allowed, reason } = await moderate(text);
+  const ctx = await getModerationContext(supabase, user.id);
+  const { allowed, reason } = ctx.bypass ? { allowed: true, reason: "" } : await moderate(text, { verified: ctx.verified });
   if (!allowed) {
     return NextResponse.json(
       { error: reason || "This reply doesn't meet the community guidelines — try rephrasing." },
@@ -84,8 +86,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       actorId: user.id,
       actorUsername: profile?.username ?? null,
       type: "reply",
-      title: "New reply",
-      body: `${name} replied: ${text}`,
+      title: `${name} replied to you 💬`,
+      body: text,
       url: `/community/${id}`,
     });
   }
@@ -98,8 +100,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     actorUsername: profile?.username ?? null,
     text,
     url: `/community/${id}`,
-    where: "a reply",
+    where: "reply",
     exclude: [notifyUserId],
+    allowEveryone: await isDeveloper(supabase, user.id),
   });
 
   return NextResponse.json({ ok: true });

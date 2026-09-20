@@ -12,6 +12,10 @@ import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
 import DoubleTapLike from "@/components/DoubleTapLike";
 import NotificationsBell from "@/components/NotificationsBell";
+import PinnedBadge from "@/components/PinnedBadge";
+import PostVideo from "@/components/PostVideo";
+import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
+import { isLockedNow, isPinnedNow, sortForFeed } from "@/lib/pins";
 import { CameraIcon, CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
@@ -36,6 +40,24 @@ export default function CommunityPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Video posting is limited to the developer and accounts the developer approved.
+  const [canPostVideo, setCanPostVideo] = useState(false);
+  // Clock for timed pins: ticks every second while one is running (so the
+  // countdown moves and the pin drops off on time), otherwise every 30s.
+  const [nowMs, setNowMs] = useState(0);
+  const hasTimedPin = (posts ?? []).some((p) => p.pinned && p.pinned_until && Date.parse(p.pinned_until) > nowMs);
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const first = setTimeout(tick, 0);
+    const t = setInterval(tick, hasTimedPin ? 1000 : 30000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, [hasTimedPin]);
+  const [videoFile, setVideoFile] = useState<File | null>(null);
+  const [videoPreview, setVideoPreview] = useState<string | null>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -114,12 +136,39 @@ export default function CommunityPage() {
       .then((r) => r.json())
       .then((b) => setIsAdmin(!!b.isAdmin))
       .catch(() => {});
+    fetch("/api/community/perks")
+      .then((r) => r.json())
+      .then((b) => setCanPostVideo(!!b.canBypass))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function pickPhoto(file: File) {
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // Supabase Storage's default per-file cap
+
+  function pickVideo(file: File) {
+    if (!file.type.startsWith("video/")) {
+      setError("That file isn't a video.");
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      setError("Videos can be up to 50 MB — trim or compress it and try again.");
+      return;
+    }
+    setError(null);
+    setVideoFile(file);
+    setVideoPreview(URL.createObjectURL(file));
+    clearPhoto();
+  }
+
+  function clearVideo() {
+    setVideoFile(null);
+    setVideoPreview(null);
+    if (videoInputRef.current) videoInputRef.current.value = "";
   }
 
   function clearPhoto() {
@@ -130,7 +179,7 @@ export default function CommunityPage() {
 
   async function submitPost() {
     const message = draft.trim();
-    if (!message && !photoFile) return;
+    if (!message && !photoFile && !videoFile) return;
     if (!myUserId) return;
     setPosting(true);
     setError(null);
@@ -149,10 +198,24 @@ export default function CommunityPage() {
         photoUrl = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
       }
 
+      let videoUrl: string | null = null;
+      if (videoFile) {
+        const ext = (videoFile.name.split(".").pop() || "mp4").toLowerCase().replace(/[^a-z0-9]/g, "") || "mp4";
+        const path = `${myUserId}/community/${Date.now()}.${ext}`;
+        const { error: videoUploadError } = await supabase.storage.from("profile-media").upload(path, videoFile, {
+          contentType: videoFile.type || "video/mp4",
+        });
+        if (videoUploadError) {
+          setError(videoUploadError.message);
+          return;
+        }
+        videoUrl = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      }
+
       const res = await fetch("/api/community", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message, photoUrl }),
+        body: JSON.stringify({ message, photoUrl, videoUrl }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -161,6 +224,7 @@ export default function CommunityPage() {
       }
       setDraft("");
       clearPhoto();
+      clearVideo();
       await load();
     } catch {
       setError("Couldn't reach the server");
@@ -189,7 +253,27 @@ export default function CommunityPage() {
   }
 
   async function deleteOwn(id: string) {
-    await supabase.from("community_posts").delete().eq("id", id);
+    const { error: deleteError } = await supabase.from("community_posts").delete().eq("id", id);
+    if (deleteError) {
+      setError(/locked/i.test(deleteError.message) ? "This post is pinned for a few minutes, so it can't be deleted right now." : deleteError.message);
+      return;
+    }
+    setError(null);
+    await load();
+  }
+
+  async function setPin(post: CommunityPost, pinned: boolean, minutes?: number) {
+    const res = await fetch(`/api/admin/community/${post.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned, minutes }),
+    });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({}));
+      setError(b.error || "Couldn't pin that post");
+      return;
+    }
+    setError(null);
     await load();
   }
 
@@ -285,23 +369,58 @@ export default function CommunityPage() {
                 </button>
               </div>
             )}
+            {videoPreview && (
+              <div className="relative w-fit">
+                <video src={videoPreview} muted playsInline className="h-28 max-w-full rounded-xl bg-black object-cover" />
+                <button
+                  onClick={clearVideo}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
+                  aria-label="Remove video"
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-2">
-              <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
-                <CameraIcon className="h-4 w-4" />
-                Photo
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => e.target.files?.[0] && pickPhoto(e.target.files[0])}
-                />
-              </label>
+              <div className="flex items-center gap-1">
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                  <CameraIcon className="h-4 w-4" />
+                  Photo
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) {
+                        clearVideo();
+                        pickPhoto(e.target.files[0]);
+                      }
+                    }}
+                  />
+                </label>
+                {canPostVideo && (
+                  <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-emerald-400 active:bg-zinc-800">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="2" y="6" width="14" height="12" rx="2" />
+                      <path d="M22 8l-6 4 6 4V8z" />
+                    </svg>
+                    Video
+                    <input
+                      ref={videoInputRef}
+                      type="file"
+                      accept="video/*"
+                      className="hidden"
+                      onChange={(e) => e.target.files?.[0] && pickVideo(e.target.files[0])}
+                    />
+                  </label>
+                )}
+              </div>
               <div className="flex items-center gap-2">
                 {error && <p className="text-xs text-red-400">{error}</p>}
                 <button
                   onClick={submitPost}
-                  disabled={posting || (!draft.trim() && !photoFile)}
+                  disabled={posting || (!draft.trim() && !photoFile && !videoFile)}
                   className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                 >
                   {posting ? "Posting…" : "Post"}
@@ -318,12 +437,22 @@ export default function CommunityPage() {
               No posts yet — be the first.
             </p>
           )}
-          {posts?.map((post) => {
-            const canDelete = isAdmin || post.user_id === myUserId;
+          {sortForFeed(posts ?? [], nowMs).map((post) => {
+            const pinned = isPinnedNow(post, nowMs);
+            const locked = !isAdmin && post.user_id === myUserId && isLockedNow(post, nowMs);
+            const canDelete = isAdmin || (post.user_id === myUserId && !locked);
             const isEditing = editingId === post.id;
             const replies = commentCounts[post.id] ?? 0;
+            // Developer posts get a light green tint; pinned posts get an aura ring.
+            const isDevPost = authors[post.user_id]?.name_color === RESERVED_DEV_COLOR;
+            const wrapClass = pinned
+              ? `lf-pinned ${isDevPost ? "lf-pinned-dev" : ""} my-3 px-3.5 py-3.5`
+              : isDevPost
+                ? "my-2 rounded-2xl bg-emerald-500/[0.08] px-3.5 py-3.5"
+                : "py-4 first:pt-0";
             return (
-              <div key={post.id} className="py-4 first:pt-0">
+              <div key={post.id} className={wrapClass}>
+                {pinned && <PinnedBadge className="mb-2" until={post.pinned_until} nowMs={nowMs} />}
                 <AuthorLine
                   username={post.author_username}
                   avatarUrl={authors[post.user_id]?.avatar_url}
@@ -364,6 +493,7 @@ export default function CommunityPage() {
                     )}
                   </DoubleTapLike>
                 )}
+                {!isEditing && post.video_url && <PostVideo src={post.video_url} />}
 
                 {!isEditing && (
                   <div className="mt-2.5 flex items-center gap-4">
@@ -382,8 +512,30 @@ export default function CommunityPage() {
                     <button onClick={() => sharePost(post)} className="flex items-center gap-1.5 text-zinc-500 active:opacity-60">
                       <ShareIcon className="h-[18px] w-[18px]" />
                     </button>
+                    {isAdmin && (
+                      <div className="ml-auto flex items-center gap-3">
+                        {pinned ? (
+                          <button onClick={() => setPin(post, false)} className="text-xs font-semibold text-amber-400 active:opacity-60">
+                            Unpin
+                          </button>
+                        ) : (
+                          <>
+                            <button onClick={() => setPin(post, true)} className="text-xs font-semibold text-amber-400 active:opacity-60">
+                              Pin
+                            </button>
+                            <button onClick={() => setPin(post, true, 5)} className="text-xs font-semibold text-amber-400 active:opacity-60">
+                              Pin 5m
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    {locked && <span className="ml-auto text-[11px] font-medium text-amber-300/80">Locked while pinned</span>}
                     {canDelete && (
-                      <button onClick={() => startEdit(post)} className="ml-auto text-xs font-medium text-zinc-600 active:opacity-60">
+                      <button
+                        onClick={() => startEdit(post)}
+                        className={`${isAdmin || locked ? "" : "ml-auto"} text-xs font-medium text-zinc-600 active:opacity-60`}
+                      >
                         Edit
                       </button>
                     )}

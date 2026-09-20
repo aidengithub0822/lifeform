@@ -974,3 +974,74 @@ create policy "owner_all" on public.coach_conversations
 drop policy if exists "owner_all" on public.coach_messages;
 create policy "owner_all" on public.coach_messages
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ============================================================================
+-- Dev tools: pinned posts, video posts, moderation bypass. Safe to re-run.
+-- ============================================================================
+
+-- Pinned posts float to the top of the feed. Only the developer (service-role
+-- API route) can change these — a trigger snaps them back for everyone else,
+-- including on insert, so a user can't pin their own post through the API.
+alter table public.community_posts add column if not exists pinned boolean not null default false;
+alter table public.community_posts add column if not exists pinned_at timestamptz;
+alter table public.community_posts add column if not exists video_url text;
+-- Timed pin: when set, the pin lasts until this moment (the developer's
+-- "pin for 5 minutes"), and the post can't be deleted by its author until then.
+alter table public.community_posts add column if not exists pinned_until timestamptz;
+create index if not exists community_posts_pinned_idx on public.community_posts (pinned, pinned_at desc);
+
+create or replace function public.lock_community_pin_fields()
+returns trigger as $$
+begin
+  if auth.role() <> 'service_role' then
+    if tg_op = 'INSERT' then
+      new.pinned := false;
+      new.pinned_at := null;
+      new.pinned_until := null;
+    else
+      new.pinned := old.pinned;
+      new.pinned_at := old.pinned_at;
+      new.pinned_until := old.pinned_until;
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists lock_community_pin_fields on public.community_posts;
+create trigger lock_community_pin_fields
+  before insert or update on public.community_posts
+  for each row execute function public.lock_community_pin_fields();
+
+-- While a post is under a timed pin, only the developer (service role) can delete it.
+create or replace function public.protect_pinned_post_delete()
+returns trigger as $$
+begin
+  if old.pinned_until is not null and old.pinned_until > now() and auth.role() <> 'service_role' then
+    raise exception 'This post is locked for a few minutes because it was pinned.';
+  end if;
+  return old;
+end;
+$$ language plpgsql security definer;
+
+drop trigger if exists protect_pinned_post_delete on public.community_posts;
+create trigger protect_pinned_post_delete
+  before delete on public.community_posts
+  for each row execute function public.protect_pinned_post_delete();
+
+-- Accounts the developer has approved to skip the AI post filter and to post
+-- videos. Locked like name_color/verified/rank: only the service role can set it.
+alter table public.profiles add column if not exists bypass_moderation boolean not null default false;
+
+create or replace function public.lock_profile_admin_fields()
+returns trigger as $$
+begin
+  if auth.role() <> 'service_role' then
+    new.name_color := old.name_color;
+    new.verified := old.verified;
+    new.rank := old.rank;
+    new.bypass_moderation := old.bypass_moderation;
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer;

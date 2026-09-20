@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { notifyMentions } from "@/lib/notify";
+import { isDeveloper } from "@/lib/moderationAccess";
 
 // POST { text, url, conversationId? } — called by the client right after it
 // saves something that the server didn't write itself (group-chat messages),
@@ -23,6 +24,7 @@ export async function POST(request: Request) {
   const { data: profile } = await supabase.from("profiles").select("username").eq("user_id", user.id).maybeSingle();
 
   let onlyUserIds: string[] | undefined;
+  let groupName: string | null = null;
   if (conversationId) {
     const admin = createAdminClient();
     // The sender must actually be in the conversation they claim to be posting in.
@@ -32,6 +34,8 @@ export async function POST(request: Request) {
       .eq("conversation_id", conversationId);
     onlyUserIds = (members ?? []).map((m: { user_id: string }) => m.user_id);
     if (!onlyUserIds.includes(user.id)) return NextResponse.json({ error: "Not in that conversation" }, { status: 403 });
+    const { data: convo } = await admin.from("conversations").select("name").eq("id", conversationId).maybeSingle();
+    groupName = (convo?.name as string | null) ?? null;
   }
 
   await notifyMentions({
@@ -40,8 +44,9 @@ export async function POST(request: Request) {
     actorUsername: profile?.username ?? null,
     text,
     url,
-    where: conversationId ? "the group chat" : "a message",
+    where: conversationId ? groupName || "the group chat" : "a message",
     onlyUserIds,
+    allowEveryone: await isDeveloper(supabase, user.id),
   });
   return NextResponse.json({ ok: true });
 }

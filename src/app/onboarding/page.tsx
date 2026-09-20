@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { announceUsernameSet } from "@/lib/pushClient";
 import {
   estimateMaintenanceCalories,
   calorieTargetForPhase,
@@ -121,6 +122,9 @@ export default function OnboardingPage() {
       );
       return;
     }
+    // New account just picked a username — this is when the "turn on
+    // notifications" popup should appear (see NotificationPrompt).
+    announceUsernameSet();
     setStep("intro");
   }
 

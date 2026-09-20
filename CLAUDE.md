@@ -396,3 +396,37 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   first, service-role read, no emails), NEW chips, 20s polling with a "new user
   joined" toast, and a red nav badge counting profiles created since the Dev
   page was last opened (`lf_dev_seen` in localStorage — `src/lib/devSeen.ts`).
+
+## Dev powers, moderation, notification popup
+
+- **Dev identity**: "developer" = an unlocked developer-mode session (`lf_admin`
+  cookie) OR the account wearing the reserved dev name color
+  (`RESERVED_DEV_COLOR`, only ever grantable to yourself). Dev posts/comments/
+  messages get a light green tint everywhere (`name_color === RESERVED_DEV_COLOR`).
+- **Dev page user actions** (`/api/admin/users/[userId]/action`): kick (24h ban),
+  ban/unban, reset username (placeholder; posts' copied author names updated),
+  remove photo/bio, delete all posts, delete account, and grant/revoke
+  `profiles.bypass_moderation`. Never against your own account. Bans block
+  sign-in/refresh; an already-issued access token can live up to ~1h.
+- **Pinning** (`community_posts.pinned/pinned_at/pinned_until`, admin route
+  `PATCH /api/admin/community/[id] {pinned, minutes?}`): pinned posts sort first
+  (`src/lib/pins.ts`) and get the `.lf-pinned` aura. "Pin 5m" = timed pin: the
+  author can't delete it until the timer ends (DB trigger
+  `protect_pinned_post_delete`), the author gets a notification, expiry is computed
+  from the timestamp. Pin columns are locked from non-service-role writes.
+- **Moderation** (`src/lib/moderate.ts`): light-touch. Links always blocked (regex);
+  no-letter text (emoji) skips AI; AI blocks slurs, hate speech, targeted abuse,
+  real safety issues; swearing only for `profiles.verified`; jokes like "I'm gonna
+  kill you" allowed. Photos are AI-checked (`moderateImage`) in `/api/community`
+  and via `/api/moderate-image` for avatar/gallery uploads (non-verified fail
+  closed). Dev + `bypass_moderation` accounts skip all of it and are the only ones
+  who can post videos (`video_url`, uploaded straight to `profile-media`, 50 MB).
+- **@everyone**: only honored when the author is the dev (`notifyMentions`
+  `allowEveryone`); notifies all profiles (or all members in a group chat).
+- **Notification wording**: "X sent message 🔥" (DM), "X tagged you in post 📌",
+  "X sent message in <group name>", "X replied to you 💬", "X tagged everyone 📣".
+- **Notification popup** (`NotificationPrompt.tsx`, client helpers in
+  `src/lib/pushClient.ts` — `src/lib/push.ts` is the server sender): shown on app
+  open for signed-in users with a username and no push subscription; "Not now"
+  hides it until the app is reopened; new accounts see it right after picking a
+  username (`USERNAME_SET_EVENT`).

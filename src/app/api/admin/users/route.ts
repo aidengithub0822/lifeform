@@ -25,14 +25,37 @@ export async function GET(request: Request) {
   const sinceMs = sinceRaw ? Date.parse(sinceRaw) : NaN;
 
   const admin = createAdminClient();
-  const { data: profiles, error } = await admin
+  // bypass_moderation only exists once the latest schema.sql has been run —
+  // fall back to the older column set so this page never breaks over it.
+  const baseCols = "user_id, username, avatar_url, name_color, verified, rank, created_at";
+  const first = await admin
     .from("profiles")
-    .select("user_id, username, avatar_url, name_color, verified, rank, created_at")
+    .select(`${baseCols}, bypass_moderation`)
     .order("created_at", { ascending: false })
     .limit(2000);
+  let profiles: unknown[] | null = first.data;
+  let error: { message: string } | null = first.error;
+  if (error) {
+    const fallback = await admin
+      .from("profiles")
+      .select(baseCols)
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    profiles = fallback.data;
+    error = fallback.error;
+  }
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = profiles ?? [];
+  const rows = (profiles ?? []) as Array<{
+    user_id: string;
+    username: string;
+    avatar_url: string | null;
+    name_color: string | null;
+    verified: boolean;
+    rank: string;
+    created_at: string;
+    bypass_moderation?: boolean;
+  }>;
   const newRows = Number.isFinite(sinceMs) ? rows.filter((p) => Date.parse(p.created_at) > sinceMs) : [];
   const latest = rows.slice(0, 5).map((p) => ({ user_id: p.user_id, username: p.username, created_at: p.created_at }));
   const base = {
@@ -46,11 +69,15 @@ export async function GET(request: Request) {
   // Last sign-in comes from Supabase Auth (service role only). Best-effort:
   // if the lookup fails the list still renders, just without that column.
   const lastSignIn = new Map<string, string | null>();
+  const bannedUntil = new Map<string, string | null>();
   try {
     for (let page = 1; page <= 10; page++) {
       const { data, error: listErr } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
       if (listErr || !data) break;
-      for (const u of data.users) lastSignIn.set(u.id, u.last_sign_in_at ?? null);
+      for (const u of data.users) {
+        lastSignIn.set(u.id, u.last_sign_in_at ?? null);
+        bannedUntil.set(u.id, (u as { banned_until?: string | null }).banned_until ?? null);
+      }
       if (data.users.length < 1000) break;
     }
   } catch {
@@ -68,6 +95,11 @@ export async function GET(request: Request) {
       rank: p.rank,
       created_at: p.created_at,
       last_sign_in_at: lastSignIn.get(p.user_id) ?? null,
+      bypass_moderation: p.bypass_moderation === true,
+      banned_until: (() => {
+        const b = bannedUntil.get(p.user_id);
+        return b && Date.parse(b) > Date.now() ? b : null;
+      })(),
     })),
   });
 }

@@ -7,7 +7,7 @@ import { extractMentions } from "@/lib/mentions";
 // for everyone) and a push notification (only for people who installed the
 // app and opted in). Push alone is why tags used to seem to do nothing.
 
-export type NotificationType = "mention" | "reply" | "message";
+export type NotificationType = "mention" | "reply" | "message" | "pin" | "announcement";
 
 export interface NotifyInput {
   actorId: string | null;
@@ -54,7 +54,10 @@ export async function resolveMentionedUserIds(
   text: string,
   exclude: (string | null | undefined)[] = []
 ): Promise<string[]> {
-  const names = extractMentions(text).slice(0, 10);
+  // "@everyone" is a broadcast (developer only), never a real username lookup.
+  const names = extractMentions(text)
+    .filter((n) => n.toLowerCase() !== "everyone")
+    .slice(0, 10);
   if (names.length === 0) return [];
   const skip = new Set(exclude.filter(Boolean) as string[]);
   const found = await Promise.all(
@@ -74,28 +77,76 @@ export async function resolveMentionedUserIds(
   return [...new Set(found.filter((id): id is string => !!id && !skip.has(id)))];
 }
 
-/** Notifies everyone tagged with @username in `text`. */
+const EVERYONE_RE = /(^|[^a-zA-Z0-9_])@everyone(?![a-zA-Z0-9_])/i;
+
+/** True if the text contains a standalone "@everyone". */
+export function mentionsEveryone(text: string): boolean {
+  return EVERYONE_RE.test(text);
+}
+
+/**
+ * Notifies everyone tagged with @username in `text`.
+ *
+ * Notification titles read like "anthony tagged you in post 📌" — `where` is
+ * the short place name ("post", "reply", or a group chat's name).
+ * "@everyone" notifies every account (or every member, when `onlyUserIds` is
+ * given) but only when the caller says the author is the developer.
+ */
 export async function notifyMentions(opts: {
   supabase: AnySupabase;
   actorId: string;
   actorUsername: string | null;
   text: string;
   url: string;
-  where: string; // e.g. "a post", "a reply", "the group chat"
+  where: string; // short place name, e.g. "post", "reply", or the group chat's name
   exclude?: (string | null | undefined)[];
   onlyUserIds?: string[]; // restrict to these users (e.g. members of a group chat)
+  allowEveryone?: boolean; // the author is the developer, so "@everyone" is honored
 }): Promise<void> {
+  const name = opts.actorUsername || "Someone";
+
+  let everyoneIds: string[] = [];
+  if (opts.allowEveryone && mentionsEveryone(opts.text)) {
+    if (opts.onlyUserIds) {
+      everyoneIds = opts.onlyUserIds.filter((id) => id !== opts.actorId);
+    } else {
+      try {
+        const admin = createAdminClient();
+        const { data } = await admin.from("profiles").select("user_id").limit(5000);
+        everyoneIds = (data ?? []).map((r: { user_id: string }) => r.user_id).filter((id: string) => id !== opts.actorId);
+      } catch {
+        everyoneIds = [];
+      }
+    }
+    // Send in small batches so a big user list doesn't open hundreds of push requests at once.
+    for (let i = 0; i < everyoneIds.length; i += 20) {
+      await Promise.all(
+        everyoneIds.slice(i, i + 20).map((id) =>
+          notifyUser(id, {
+            actorId: opts.actorId,
+            actorUsername: opts.actorUsername,
+            type: "announcement",
+            title: `${name} tagged everyone 📣`,
+            body: opts.text,
+            url: opts.url,
+          })
+        )
+      );
+    }
+  }
+
   let ids = await resolveMentionedUserIds(opts.supabase, opts.text, [opts.actorId, ...(opts.exclude ?? [])]);
   if (opts.onlyUserIds) ids = ids.filter((id) => opts.onlyUserIds!.includes(id));
-  const name = opts.actorUsername || "Someone";
+  const alreadyNotified = new Set(everyoneIds);
+  ids = ids.filter((id) => !alreadyNotified.has(id));
   await Promise.all(
     ids.map((id) =>
       notifyUser(id, {
         actorId: opts.actorId,
         actorUsername: opts.actorUsername,
         type: "mention",
-        title: `${name} tagged you`,
-        body: `${name} tagged you in ${opts.where}: ${opts.text}`,
+        title: `${name} tagged you in ${opts.where} 📌`,
+        body: opts.text,
         url: opts.url,
       })
     )

@@ -10,6 +10,10 @@ import PullToRefresh from "@/components/PullToRefresh";
 import MentionTextarea from "@/components/MentionTextarea";
 import MentionText from "@/components/MentionText";
 import DoubleTapLike from "@/components/DoubleTapLike";
+import PinnedBadge from "@/components/PinnedBadge";
+import PostVideo from "@/components/PostVideo";
+import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
+import { isLockedNow, isPinnedNow } from "@/lib/pins";
 import { ChevronIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
 
@@ -57,6 +61,7 @@ function CommentNode({
   const children = allComments.filter((c) => c.parent_id === comment.id);
   const canDelete = isAdmin || comment.user_id === myUserId;
   const a = authors[comment.user_id];
+  const isDevComment = a?.name_color === RESERVED_DEV_COLOR;
   const indent = Math.min(depth, 4) * 16;
 
   async function saveCommentEdit() {
@@ -112,7 +117,7 @@ function CommentNode({
 
   return (
     <div style={{ marginLeft: indent }} className={depth > 0 ? "border-l border-zinc-900 pl-3" : undefined}>
-      <div className="py-2.5">
+      <div className={isDevComment ? "my-1 rounded-2xl bg-emerald-500/[0.08] px-3 py-2.5" : "py-2.5"}>
         <AuthorLine
           username={comment.author_username}
           avatarUrl={a?.avatar_url}
@@ -243,6 +248,17 @@ export default function CommunityThreadPage() {
   const [loading, setLoading] = useState(true);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [nowMs, setNowMs] = useState(0);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  useEffect(() => {
+    const tick = () => setNowMs(Date.now());
+    const first = setTimeout(tick, 0);
+    const t = setInterval(tick, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+    };
+  }, []);
   const [likeCount, setLikeCount] = useState(0);
   const [likedByMe, setLikedByMe] = useState(false);
   const [likeBusy, setLikeBusy] = useState(false);
@@ -399,7 +415,15 @@ export default function CommunityThreadPage() {
     if (isAdmin && post.user_id !== myUserId) {
       await fetch(`/api/admin/community/${post.id}`, { method: "DELETE" });
     } else {
-      await supabase.from("community_posts").delete().eq("id", post.id);
+      const { error: deleteErr } = await supabase.from("community_posts").delete().eq("id", post.id);
+      if (deleteErr) {
+        setDeleteError(
+          /locked/i.test(deleteErr.message)
+            ? "This post is pinned for a few minutes, so it can't be deleted right now."
+            : deleteErr.message
+        );
+        return;
+      }
     }
     window.history.back();
   }
@@ -443,6 +467,8 @@ export default function CommunityThreadPage() {
     );
   }
 
+  const pinnedNow = isPinnedNow(post, nowMs);
+  const lockedNow = !isAdmin && post.user_id === myUserId && isLockedNow(post, nowMs);
   const canDeletePost = isAdmin || post.user_id === myUserId;
   const topLevel = comments.filter((c) => !c.parent_id);
 
@@ -453,7 +479,16 @@ export default function CommunityThreadPage() {
           <ChevronIcon className="h-4 w-4" direction="left" /> Community
         </Link>
 
-        <div className="mt-4 border-b border-zinc-900 pb-4">
+        <div
+          className={`mt-4 ${
+            pinnedNow
+              ? `lf-pinned ${authors[post.user_id]?.name_color === RESERVED_DEV_COLOR ? "lf-pinned-dev" : ""} px-3.5 py-3.5`
+              : authors[post.user_id]?.name_color === RESERVED_DEV_COLOR
+                ? "rounded-2xl bg-emerald-500/[0.08] px-3.5 py-3.5"
+                : "border-b border-zinc-900 pb-4"
+          }`}
+        >
+          {pinnedNow && <PinnedBadge className="mb-2" until={post.pinned_until} nowMs={nowMs} />}
           <AuthorLine
             username={post.author_username}
             avatarUrl={authors[post.user_id]?.avatar_url}
@@ -500,6 +535,7 @@ export default function CommunityThreadPage() {
               )}
             </DoubleTapLike>
           )}
+          {!editingPost && post.video_url && <PostVideo src={post.video_url} className="mt-2.5 max-h-[28rem]" />}
           <div className="mt-3 flex items-center gap-4">
             <button
               onClick={toggleLike}
@@ -525,12 +561,17 @@ export default function CommunityThreadPage() {
                     Edit post
                   </button>
                 )}
-                <button onClick={deletePost} className="text-xs font-medium text-zinc-600 active:opacity-60">
-                  Delete post
-                </button>
+                {lockedNow ? (
+                  <span className="text-[11px] font-medium text-amber-300/80">Locked while pinned</span>
+                ) : (
+                  <button onClick={deletePost} className="text-xs font-medium text-zinc-600 active:opacity-60">
+                    Delete post
+                  </button>
+                )}
               </div>
             )}
           </div>
+          {deleteError && <p className="mt-2 text-xs text-red-400">{deleteError}</p>}
         </div>
 
         <div className="mt-4 flex gap-2.5">

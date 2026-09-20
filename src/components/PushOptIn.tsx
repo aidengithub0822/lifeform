@@ -1,86 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { enablePush, getPushState, type PushState } from "@/lib/pushClient";
 
 // iOS only supports Web Push for a PWA that's been "Added to Home Screen"
 // (Settings not accepted from inside plain Safari) and needs iOS 16.4+.
 // This component degrades quietly on anything that can't do it at all.
 
-type Status = "unsupported" | "not-ios-installed" | "denied" | "off" | "on";
-
-function urlBase64ToUint8Array(base64String: string) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
-}
-
 export default function PushOptIn() {
-  const [status, setStatus] = useState<Status>("off");
+  const [status, setStatus] = useState<PushState>("off");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    async function check() {
-      if (!("serviceWorker" in navigator) || !("PushManager" in window) || !("Notification" in window)) {
-        setStatus("unsupported");
-        return;
-      }
-      const isIos = /iphone|ipad|ipod/i.test(navigator.userAgent);
-      const standalone =
-        // @ts-expect-error -- iOS Safari-only property
-        window.navigator.standalone === true || window.matchMedia("(display-mode: standalone)").matches;
-      if (isIos && !standalone) {
-        setStatus("not-ios-installed");
-        return;
-      }
-      if (Notification.permission === "denied") {
-        setStatus("denied");
-        return;
-      }
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.getSubscription();
-      setStatus(sub ? "on" : "off");
-    }
-    check();
+    getPushState().then(setStatus);
   }, []);
 
   async function enable() {
     setBusy(true);
     setError(null);
-    try {
-      const permission = await Notification.requestPermission();
-      if (permission !== "granted") {
-        setStatus("denied");
-        return;
-      }
-      const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-      if (!publicKey) {
-        setError("Push isn't configured on the server yet.");
-        return;
-      }
-      const reg = await navigator.serviceWorker.ready;
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-      const json = sub.toJSON();
-      const res = await fetch("/api/push/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ endpoint: json.endpoint, keys: json.keys }),
-      });
-      if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        setError(b.error || "Couldn't save that subscription");
-        return;
-      }
-      setStatus("on");
-    } catch {
-      setError("Couldn't enable notifications on this device.");
-    } finally {
-      setBusy(false);
-    }
+    const result = await enablePush();
+    if (result.ok) setStatus("on");
+    else if (result.denied) setStatus("denied");
+    else setError(result.error);
+    setBusy(false);
   }
 
   async function disable() {

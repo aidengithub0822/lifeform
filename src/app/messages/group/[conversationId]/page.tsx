@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -245,7 +246,9 @@ export default function GroupThreadPage() {
       if (error) throw new Error(error.message);
       await markRead(myUserId);
 
-      const title = myUsername ? `${myUsername} in ${convo?.name || "your group"}` : "New group message";
+      const title = myUsername
+        ? `${myUsername} sent message in ${convo?.name || "your group"}`
+        : `New message in ${convo?.name || "your group"}`;
       for (const m of members) {
         if (m.user_id === myUserId) continue;
         fetch("/api/push/notify", {
@@ -443,7 +446,11 @@ export default function GroupThreadPage() {
                 {m.body && (
                   <div
                     className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
-                      mine ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-100"
+                      mine
+                        ? "bg-emerald-500 text-black"
+                        : members.find((mem) => mem.user_id === m.sender_id)?.name_color === RESERVED_DEV_COLOR
+                          ? "border border-emerald-500/30 bg-emerald-500/15 text-emerald-50"
+                          : "bg-zinc-800 text-zinc-100"
                     }`}
                   >
                     {m.body}

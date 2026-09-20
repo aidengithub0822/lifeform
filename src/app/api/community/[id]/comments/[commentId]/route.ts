@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
+import { getModerationContext } from "@/lib/moderationAccess";
 
 // PATCH { body } — the author edits their own reply. Re-moderated.
 export async function PATCH(
@@ -19,7 +20,8 @@ export async function PATCH(
   if (!text) return NextResponse.json({ error: "Reply can't be empty" }, { status: 400 });
   if (text.length > 1000) return NextResponse.json({ error: "Keep it under 1000 characters" }, { status: 400 });
 
-  const { allowed, reason } = await moderate(text);
+  const ctx = await getModerationContext(supabase, user.id);
+  const { allowed, reason } = ctx.bypass ? { allowed: true, reason: "" } : await moderate(text, { verified: ctx.verified });
   if (!allowed) {
     return NextResponse.json(
       { error: reason || "This reply doesn't meet the community guidelines — try rephrasing." },

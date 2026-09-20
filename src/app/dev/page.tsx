@@ -16,7 +16,21 @@ interface DevUser {
   rank: string;
   created_at: string;
   last_sign_in_at: string | null;
+  bypass_moderation: boolean;
+  banned_until: string | null;
 }
+
+type UserAction =
+  | "kick"
+  | "ban"
+  | "unban"
+  | "reset_username"
+  | "clear_avatar"
+  | "clear_bio"
+  | "purge_content"
+  | "delete_account"
+  | "grant_bypass"
+  | "revoke_bypass";
 
 const POLL_MS = 20_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -47,6 +61,9 @@ export default function DevPage() {
   const [toast, setToast] = useState<string | null>(null);
   const [baseline, setBaseline] = useState<string | null>(null);
   const [now, setNow] = useState(0);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
   const knownIds = useRef<Set<string> | null>(null);
   const baselineTaken = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -112,6 +129,31 @@ export default function DevPage() {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
   }, [load]);
+
+  async function runAction(u: DevUser, action: UserAction, confirmText?: string) {
+    if (confirmText && !window.confirm(confirmText)) return;
+    setBusyAction(`${u.user_id}:${action}`);
+    setActionMsg(null);
+    try {
+      const res = await fetch(`/api/admin/users/${u.user_id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setActionMsg(body.error || "That didn't work");
+        return;
+      }
+      setActionMsg(action === "delete_account" ? `Deleted @${u.username}` : `Done — @${u.username}`);
+      if (action === "delete_account") setExpanded(null);
+      await load();
+    } catch {
+      setActionMsg("Couldn't reach the server");
+    } finally {
+      setBusyAction(null);
+    }
+  }
 
   const baselineMs = baseline ? Date.parse(baseline) : NaN;
   const isNew = (u: DevUser) => {
@@ -199,40 +241,154 @@ export default function DevPage() {
             {shown.length === 0 && <p className="px-4 py-6 text-center text-sm text-zinc-500">No users match.</p>}
             {shown.map((u) => {
               const meta = rankMeta(u.rank);
+              const open = expanded === u.user_id;
+              const banned = !!u.banned_until;
+              const btn = "rounded-lg border px-3 py-2 text-xs font-semibold disabled:opacity-50";
+              const busy = (a: UserAction) => busyAction === `${u.user_id}:${a}`;
               return (
-                <Link
-                  key={u.user_id}
-                  href={`/profile/${encodeURIComponent(u.username)}`}
-                  className="flex items-center gap-3 px-4 py-3"
-                >
-                  <Avatar url={u.avatar_url} name={u.username} size={40} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <UserName
-                        username={u.username}
-                        color={u.name_color}
-                        verified={u.verified}
-                        rank={u.rank}
-                        className="text-sm font-semibold text-[#f4f4f5]"
-                      />
-                      {isNew(u) && (
-                        <span className="shrink-0 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
-                          New
-                        </span>
-                      )}
-                    </div>
-                    <p className="mt-0.5 truncate text-[11px] text-[#71717a]">
-                      Joined {joinedLabel(u.created_at)} · {ago(u.created_at)}
-                    </p>
-                    <p className="truncate text-[11px] text-[#52525b]">Last sign-in {ago(u.last_sign_in_at)}</p>
-                  </div>
-                  <span
-                    className="shrink-0 text-[10px] font-bold uppercase tracking-wide"
-                    style={{ color: meta.color ?? "#71717a" }}
+                <div key={u.user_id}>
+                  <button
+                    onClick={() => {
+                      setExpanded(open ? null : u.user_id);
+                      setActionMsg(null);
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left"
                   >
-                    {meta.label}
-                  </span>
-                </Link>
+                    <Avatar url={u.avatar_url} name={u.username} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <UserName
+                          username={u.username}
+                          color={u.name_color}
+                          verified={u.verified}
+                          rank={u.rank}
+                          className="text-sm font-semibold text-[#f4f4f5]"
+                        />
+                        {isNew(u) && (
+                          <span className="shrink-0 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-black">
+                            New
+                          </span>
+                        )}
+                        {banned && (
+                          <span className="shrink-0 rounded-full bg-red-500/90 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                            Banned
+                          </span>
+                        )}
+                        {u.bypass_moderation && (
+                          <span className="shrink-0 rounded-full border border-emerald-500/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-emerald-300">
+                            Videos
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-0.5 truncate text-[11px] text-[#71717a]">
+                        Joined {joinedLabel(u.created_at)} · {ago(u.created_at)}
+                      </p>
+                      <p className="truncate text-[11px] text-[#52525b]">Last sign-in {ago(u.last_sign_in_at)}</p>
+                    </div>
+                    <span
+                      className="shrink-0 text-[10px] font-bold uppercase tracking-wide"
+                      style={{ color: meta.color ?? "#71717a" }}
+                    >
+                      {meta.label}
+                    </span>
+                    <span className="shrink-0 text-[#3f3f46]">{open ? "︿" : "﹀"}</span>
+                  </button>
+
+                  {open && (
+                    <div className="space-y-2 border-t border-[#1a1a1d] bg-[#0a0a0c] px-4 py-3">
+                      <Link
+                        href={`/profile/${encodeURIComponent(u.username)}`}
+                        className="block rounded-lg border border-[#27272a] px-3 py-2 text-center text-xs font-semibold text-zinc-200"
+                      >
+                        View profile
+                      </Link>
+
+                      <div className="grid grid-cols-2 gap-2">
+                        {banned ? (
+                          <button
+                            onClick={() => runAction(u, "unban")}
+                            disabled={!!busyAction}
+                            className={`${btn} col-span-2 border-emerald-500/50 text-emerald-300`}
+                          >
+                            {busy("unban") ? "…" : "Unban"}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => runAction(u, "kick", `Kick @${u.username}? They'll be locked out for 24 hours.`)}
+                              disabled={!!busyAction}
+                              className={`${btn} border-amber-500/50 text-amber-300`}
+                            >
+                              {busy("kick") ? "…" : "Kick (24h)"}
+                            </button>
+                            <button
+                              onClick={() => runAction(u, "ban", `Ban @${u.username} from lifeform until you unban them?`)}
+                              disabled={!!busyAction}
+                              className={`${btn} border-red-500/50 text-red-300`}
+                            >
+                              {busy("ban") ? "…" : "Ban"}
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => runAction(u, u.bypass_moderation ? "revoke_bypass" : "grant_bypass")}
+                          disabled={!!busyAction}
+                          className={`${btn} col-span-2 border-emerald-500/40 text-emerald-300`}
+                        >
+                          {busy("grant_bypass") || busy("revoke_bypass")
+                            ? "…"
+                            : u.bypass_moderation
+                              ? "Take away videos + no AI filter"
+                              : "Allow videos + skip AI filter"}
+                        </button>
+                        <button
+                          onClick={() => runAction(u, "reset_username", `Replace @${u.username}'s username with a placeholder?`)}
+                          disabled={!!busyAction}
+                          className={`${btn} border-[#27272a] text-zinc-200`}
+                        >
+                          {busy("reset_username") ? "…" : "Reset username"}
+                        </button>
+                        <button
+                          onClick={() => runAction(u, "clear_avatar", `Remove @${u.username}'s profile photo?`)}
+                          disabled={!!busyAction}
+                          className={`${btn} border-[#27272a] text-zinc-200`}
+                        >
+                          {busy("clear_avatar") ? "…" : "Remove photo"}
+                        </button>
+                        <button
+                          onClick={() => runAction(u, "clear_bio", `Remove @${u.username}'s bio?`)}
+                          disabled={!!busyAction}
+                          className={`${btn} border-[#27272a] text-zinc-200`}
+                        >
+                          {busy("clear_bio") ? "…" : "Remove bio"}
+                        </button>
+                        <button
+                          onClick={() =>
+                            runAction(u, "purge_content", `Delete EVERY community post and reply by @${u.username}? This can't be undone.`)
+                          }
+                          disabled={!!busyAction}
+                          className={`${btn} border-red-500/40 text-red-300`}
+                        >
+                          {busy("purge_content") ? "…" : "Delete all posts"}
+                        </button>
+                        <button
+                          onClick={() =>
+                            runAction(
+                              u,
+                              "delete_account",
+                              `PERMANENTLY delete @${u.username}'s account and all their data? This can't be undone.`
+                            )
+                          }
+                          disabled={!!busyAction}
+                          className={`${btn} col-span-2 border-red-600 bg-red-600/15 text-red-300`}
+                        >
+                          {busy("delete_account") ? "…" : "Delete account permanently"}
+                        </button>
+                      </div>
+                      {actionMsg && <p className="text-center text-xs text-zinc-400">{actionMsg}</p>}
+                    </div>
+                  )}
+                </div>
               );
             })}
           </div>

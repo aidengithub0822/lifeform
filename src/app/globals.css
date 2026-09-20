@@ -146,3 +146,40 @@ body {
     background-position: -60% 0;
   }
 }
+
+/* Pinned community post — a slowly rotating gold/emerald/cyan ring with a
+   soft breathing glow. --lf-pin-tint lets a developer's light-green message
+   tint show through the ring's inside (see .lf-pinned-dev). */
+@keyframes lf-pin-aura {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0 rgba(250, 204, 21, 0.25),
+      0 0 16px 1px rgba(16, 185, 129, 0.25);
+  }
+  50% {
+    box-shadow:
+      0 0 0 0 rgba(250, 204, 21, 0.4),
+      0 0 26px 4px rgba(34, 211, 238, 0.32);
+  }
+}
+.lf-pinned {
+  position: relative;
+  border: 1.5px solid transparent;
+  border-radius: 1.25rem;
+  background:
+    linear-gradient(var(--lf-pin-tint, transparent), var(--lf-pin-tint, transparent)) padding-box,
+    linear-gradient(#09090b, #09090b) padding-box,
+    conic-gradient(from var(--lf-angle), #facc15, #10b981, #22d3ee, #facc15) border-box;
+  animation:
+    lf-border-spin 6s linear infinite,
+    lf-pin-aura 3.2s ease-in-out infinite;
+}
+.lf-pinned-dev {
+  --lf-pin-tint: rgba(16, 185, 129, 0.09);
+}
+@media (prefers-reduced-motion: reduce) {
+  .lf-pinned {
+    animation: none;
+  }
+}

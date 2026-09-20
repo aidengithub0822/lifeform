@@ -142,15 +142,36 @@ export default function ProfilePage() {
     await load();
   }
 
+  // Runs the AI photo check on a just-uploaded public photo. Returns a message
+  // to show the user if it was rejected (the server also deletes the file), or
+  // null if it's fine.
+  async function checkPhoto(url: string): Promise<string | null> {
+    try {
+      const res = await fetch("/api/moderate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      });
+      const b = await res.json().catch(() => ({}));
+      if (!res.ok) return b.error || "Couldn't check that photo — try again.";
+      if (b.allowed === false) return b.reason || "That photo doesn't meet the community guidelines.";
+      return null;
+    } catch {
+      return "Couldn't check that photo — try again.";
+    }
+  }
+
   async function uploadAvatar(file: File) {
     if (!profile) return;
     setUploadingAvatar(true);
     setGalleryError(null);
     try {
       const blob = await compressImageForUpload(file, 800, 0.85);
-      const path = `${profile.user_id}/avatar.jpg`;
+      // A fresh file name per upload (instead of overwriting avatar.jpg): the
+      // photo is checked BEFORE it replaces the current avatar, and a new URL
+      // means no stale cached image.
+      const path = `${profile.user_id}/avatar-${Date.now()}.jpg`;
       const { error } = await supabase.storage.from("profile-media").upload(path, blob, {
-        upsert: true,
         contentType: "image/jpeg",
       });
       if (error) {
@@ -158,11 +179,14 @@ export default function ProfilePage() {
         return;
       }
       const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
-      // Cache-bust so the new avatar shows immediately instead of a stale cached image at the same URL.
-      const bustUrl = `${url}?t=${Date.now()}`;
+      const rejected = await checkPhoto(url);
+      if (rejected) {
+        setGalleryError(rejected);
+        return;
+      }
       const { error: updateError } = await supabase
         .from("profiles")
-        .update({ avatar_url: bustUrl, updated_at: new Date().toISOString() })
+        .update({ avatar_url: url, updated_at: new Date().toISOString() })
         .eq("user_id", profile.user_id);
       if (updateError) setGalleryError(updateError.message);
     } catch (err) {
@@ -188,6 +212,11 @@ export default function ProfilePage() {
         return;
       }
       const url = supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+      const rejected = await checkPhoto(url);
+      if (rejected) {
+        setGalleryError(rejected);
+        return;
+      }
       const { error: insertError } = await supabase
         .from("profile_photos")
         .insert({ user_id: profile.user_id, photo_url: url });

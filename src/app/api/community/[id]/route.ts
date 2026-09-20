@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate } from "@/lib/moderate";
+import { getModerationContext } from "@/lib/moderationAccess";
 
 // PATCH { message } — the author edits their own post's text. Re-moderated
 // like a new post. (Developer-mode editing of anyone's post is separate:
@@ -19,18 +20,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data: existing } = await supabase
     .from("community_posts")
-    .select("user_id, photo_url")
+    .select("user_id, photo_url, video_url")
     .eq("id", id)
     .maybeSingle();
   if (!existing || existing.user_id !== user.id) {
     return NextResponse.json({ error: "You can only edit your own posts" }, { status: 403 });
   }
-  if (!message && !existing.photo_url) {
+  if (!message && !existing.photo_url && !existing.video_url) {
     return NextResponse.json({ error: "Post can't be empty" }, { status: 400 });
   }
 
-  if (message) {
-    const { allowed, reason } = await moderate(message);
+  const ctx = await getModerationContext(supabase, user.id);
+  if (message && !ctx.bypass) {
+    const { allowed, reason } = await moderate(message, { verified: ctx.verified });
     if (!allowed) {
       return NextResponse.json(
         { error: reason || "This post doesn't meet the community guidelines — try rephrasing." },

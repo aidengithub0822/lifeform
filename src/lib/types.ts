@@ -130,6 +130,8 @@ export interface Profile {
   created_at: string;
   updated_at: string;
   timezone: string;
+  /** Developer-granted: skip the AI post filter and post videos. */
+  bypass_moderation?: boolean;
 }
 
 export interface Follow {
@@ -206,6 +208,13 @@ export interface CommunityPost {
   author_username: string | null;
   message: string;
   photo_url: string | null;
+  /** Video attached to the post (developer + approved accounts only). */
+  video_url?: string | null;
+  /** Pinned to the top of the feed by the developer. */
+  pinned?: boolean;
+  pinned_at?: string | null;
+  /** Timed pin: pinned (and undeletable by the author) until this moment. */
+  pinned_until?: string | null;
   created_at: string;
 }
 

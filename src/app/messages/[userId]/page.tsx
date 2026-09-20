@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -180,7 +181,7 @@ export default function MessageThreadPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           toUserId: otherId,
-          title: myUsername ? `${myUsername} sent you a message` : "New message",
+          title: myUsername ? `${myUsername} sent message 🔥` : "New message 🔥",
           body: body || "📷 Photo",
           url: `/messages/${myUserId}`,
         }),
@@ -246,7 +247,11 @@ export default function MessageThreadPage() {
                 {m.body && (
                   <div
                     className={`whitespace-pre-wrap rounded-2xl px-3.5 py-2 text-sm ${
-                      mine ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-100"
+                      mine
+                        ? "bg-emerald-500 text-black"
+                        : otherProfile?.name_color === RESERVED_DEV_COLOR
+                          ? "border border-emerald-500/30 bg-emerald-500/15 text-emerald-50"
+                          : "bg-zinc-800 text-zinc-100"
                     }`}
                   >
                     {m.body}

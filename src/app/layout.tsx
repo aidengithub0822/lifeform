@@ -4,6 +4,7 @@ import BottomNav from "@/components/BottomNav";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import Splash from "@/components/Splash";
 import UsernameGate from "@/components/UsernameGate";
+import NotificationPrompt from "@/components/NotificationPrompt";
 import TimezoneSync from "@/components/TimezoneSync";
 
 export const metadata: Metadata = {
@@ -42,6 +43,7 @@ export default function RootLayout({
         <ServiceWorkerRegister />
         <Splash />
         <UsernameGate />
+        <NotificationPrompt />
         <TimezoneSync />
         {children}
         <BottomNav />
