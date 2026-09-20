@@ -5,11 +5,16 @@ import { createClient } from "@/lib/supabase/server";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  // Optional landing page (used by "Continue with Google"). Only same-site
+  // relative paths are honored so this can't be turned into an open redirect.
+  const nextParam = searchParams.get("next");
+  const next = nextParam && nextParam.startsWith("/") && !nextParam.startsWith("//") ? nextParam : "/onboarding";
 
   if (code) {
     const supabase = await createClient();
-    await supabase.auth.exchangeCodeForSession(code);
+    const { error } = await supabase.auth.exchangeCodeForSession(code);
+    if (error) return NextResponse.redirect(`${origin}/login`);
   }
 
-  return NextResponse.redirect(`${origin}/onboarding`);
+  return NextResponse.redirect(`${origin}${next}`);
 }
