@@ -376,3 +376,21 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   `CoachReply.tsx` (paragraph spacing, bullets, bold) and the system prompt
   asks for short blank-line-separated paragraphs.
 
+
+## Lift browser and Dev page
+
+- **/fitness lift logging** (`src/lib/liftBrowser.ts`): the six muscle-group
+  buttons (Chest/Back/Shoulders/Arms/Legs/Abs) open into sub-muscle sections
+  (Arms -> Biceps/Triceps, Legs -> Quads/Glutes/Hamstrings/Calves, etc.), each
+  listing every exercise with an inline `LogSetForm`. The old "Log a different
+  exercise" picker is gone. "Today's workout" is a collapsed button below
+  the muscle buttons; the muscle map/rank section sits below that. Exercise
+  names in `LIFT_SUBSECTIONS` MUST match `ALL_EXERCISES` (trainingSplits.ts),
+  which `/api/lifts` validates against — to add an exercise, add it to
+  `EXTRA_EXERCISES` there AND list it in a subsection here.
+- **Dev page** (`/dev`, `/api/admin/users`): a 7th nav tab that only appears in
+  developer mode (`lf_admin` cookie; BottomNav checks `/api/admin/status` and
+  listens for `DEV_MODE_EVENT` from Settings). Lists every profile (newest
+  first, service-role read, no emails), NEW chips, 20s polling with a "new user
+  joined" toast, and a red nav badge counting profiles created since the Dev
+  page was last opened (`lf_dev_seen` in localStorage — `src/lib/devSeen.ts`).

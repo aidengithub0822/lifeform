@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
+import { DEV_MODE_EVENT, DEV_SEEN_EVENT, getDevSeen, setDevSeen } from "@/lib/devSeen";
 
 // Six predictable destinations: Home (today's snapshot + quick links to
 // Recipes/Meal ideas), Fitness (opens straight to the muscle-rank page —
@@ -63,6 +65,19 @@ function ProfileIcon() {
   );
 }
 
+// Developer-mode-only tab: appears after the code is entered in Settings,
+// disappears when developer mode is exited. The badge counts profiles created
+// since the last time the Dev page was opened.
+function DevIcon() {
+  return (
+    <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 7l-5 5 5 5M16 7l5 5-5 5M14 4l-4 16" />
+    </svg>
+  );
+}
+
+const DEV_TAB = { href: "/dev", label: "Dev", Icon: DevIcon, matches: ["/dev"] };
+
 const tabs = [
   { href: "/", label: "Home", Icon: HomeIcon, matches: ["/"] },
   {
@@ -92,12 +107,73 @@ export default function BottomNav() {
   const hidden = ["/login", "/signup", "/onboarding", "/auth"].some((p) =>
     pathname.startsWith(p)
   );
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+
+  // Is developer mode unlocked? Checked once on load, and again whenever
+  // Settings unlocks/exits it (DEV_MODE_EVENT) — no polling needed for this.
+  useEffect(() => {
+    if (hidden) return;
+    let cancelled = false;
+    fetch("/api/admin/status")
+      .then((r) => r.json())
+      .then((b) => {
+        if (!cancelled) setIsAdmin(!!b.isAdmin);
+      })
+      .catch(() => {});
+    const onMode = (e: Event) => setIsAdmin(!!(e as CustomEvent<boolean>).detail);
+    window.addEventListener(DEV_MODE_EVENT, onMode);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(DEV_MODE_EVENT, onMode);
+    };
+  }, [hidden]);
+
+  // While in developer mode, poll (cheap summary call) for profiles created
+  // since the Dev page was last opened, and show the count as a badge.
+  const checkNew = useCallback(async () => {
+    try {
+      const seen = getDevSeen();
+      const res = await fetch(`/api/admin/users?summary=1${seen ? `&since=${encodeURIComponent(seen)}` : ""}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const body = await res.json();
+      if (!seen) {
+        // First time on this device: start counting from now instead of
+        // flagging every existing user as "new".
+        if (body.newest) setDevSeen(body.newest);
+        setNewCount(0);
+        return;
+      }
+      setNewCount(typeof body.newCount === "number" ? body.newCount : 0);
+    } catch {
+      // Badge is best-effort.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isAdmin || hidden) return;
+    const first = setTimeout(checkNew, 0);
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") checkNew();
+    }, 45_000);
+    window.addEventListener(DEV_SEEN_EVENT, checkNew);
+    return () => {
+      clearTimeout(first);
+      clearInterval(t);
+      window.removeEventListener(DEV_SEEN_EVENT, checkNew);
+    };
+  }, [isAdmin, hidden, checkNew]);
+
   if (hidden) return null;
+
+  const allTabs = isAdmin ? [...tabs, DEV_TAB] : tabs;
 
   return (
     <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#18181b] bg-[#0c0c0e]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
       <div className="mx-auto flex max-w-md justify-around">
-        {tabs.map((tab) => {
+        {allTabs.map((tab) => {
           // "/" only matches exactly; every other tab also covers the
           // existing standalone routes it now aggregates (e.g. Train stays
           // highlighted on /fitness, /scan, /recipes, /discover, /coach).
@@ -117,6 +193,15 @@ export default function BottomNav() {
               {isCoach ? (
                 <span className="lf-ai-aura flex h-[21px] w-[21px] items-center justify-center rounded-full">
                   <Icon />
+                </span>
+              ) : tab.href === "/dev" ? (
+                <span className="relative flex">
+                  <Icon />
+                  {isAdmin && newCount > 0 && (
+                    <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
+                      {newCount > 9 ? "9+" : newCount}
+                    </span>
+                  )}
                 </span>
               ) : (
                 <Icon />

@@ -2,14 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CATEGORIES, WORKOUTS, type MuscleCategory } from "@/lib/workoutCatalog";
+import { CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
+import { LIFT_SUBSECTIONS, resolveSubsection } from "@/lib/liftBrowser";
 import {
   SPLITS,
   currentDay,
-  ALL_EXERCISES,
-  MUSCLE_GROUPS,
   MUSCLE_LABELS,
-  exercisesForMuscle,
   type SplitExercise,
   type MuscleGroup,
 } from "@/lib/trainingSplits";
@@ -97,8 +95,16 @@ function LogSetForm({
 
   if (saved) {
     return (
-      <div className="mt-2 flex items-center gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs font-medium text-emerald-400">
-        Logged {weight} lb × {reps} for {sets} {Number(sets) === 1 ? "set" : "sets"} ✓
+      <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs font-medium text-emerald-400">
+        <span>
+          Logged {weight} lb × {reps} for {sets} {Number(sets) === 1 ? "set" : "sets"} ✓
+        </span>
+        <button
+          onClick={() => setSaved(false)}
+          className="shrink-0 rounded-full border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-300"
+        >
+          Log another
+        </button>
       </div>
     );
   }
@@ -161,8 +167,8 @@ export default function FitnessPage() {
   const [planLoading, setPlanLoading] = useState(true);
   const [openExercise, setOpenExercise] = useState<string | null>(null);
   const [loggedNames, setLoggedNames] = useState<Set<string>>(new Set());
-  const [pickerMuscle, setPickerMuscle] = useState<MuscleGroup | null>(null);
-  const [showPicker, setShowPicker] = useState(false);
+  const [openSub, setOpenSub] = useState<string | null>(null);
+  const [showToday, setShowToday] = useState(false);
   const [muscleRanks, setMuscleRanks] = useState<MuscleRankApiResult[] | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [rankSummary, setRankSummary] = useState<RankSummary | null>(null);
@@ -208,7 +214,6 @@ export default function FitnessPage() {
 
   function markLogged(exerciseName: string) {
     setLoggedNames((prev) => new Set(prev).add(exerciseName));
-    setOpenExercise(null);
     // The set that was just logged may have moved this muscle's rank —
     // refresh so the map reflects it without a full page reload.
     refreshMuscleRanks();
@@ -232,8 +237,6 @@ export default function FitnessPage() {
     }
   }
 
-  const pickerExercises: SplitExercise[] = pickerMuscle ? exercisesForMuscle(pickerMuscle) : ALL_EXERCISES;
-
   return (
     <div className="mx-auto max-w-md px-5 py-8">
       <XpSparkToast xp={sparkXp} onDone={() => setSparkXp(null)} />
@@ -241,7 +244,7 @@ export default function FitnessPage() {
         ← Back
       </Link>
       <h1 className="mt-2 text-2xl font-bold">Fitness</h1>
-      <p className="mt-1 text-sm text-zinc-400">Pick a muscle group to see what to train today.</p>
+      <p className="mt-1 text-sm text-zinc-400">Log your lifts, track your ranks, and see what to train today.</p>
 
       {rankSummary && (
         <div
@@ -306,7 +309,157 @@ export default function FitnessPage() {
         🏋️ My lifts — edit or delete
       </button>
 
-      <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
+      <section className="mt-6">
+        <h2 className="text-sm font-semibold text-zinc-200">Log a lift</h2>
+        <p className="mt-0.5 text-xs text-[#71717a]">Pick a muscle group, then a muscle, then tap an exercise to log it.</p>
+        <div className="mt-3 grid grid-cols-3 gap-2.5">
+          {CATEGORIES.map((c) => (
+            <button
+              key={c.key}
+              onClick={() => {
+                setCategory(category === c.key ? null : c.key);
+                setOpenSub(null);
+                setOpenExercise(null);
+              }}
+              className={`flex flex-col items-center gap-1 rounded-2xl border px-2 py-3.5 text-center active:scale-[0.97] ${
+                category === c.key ? "border-emerald-500 bg-emerald-500/10" : "border-zinc-800 bg-zinc-900"
+              }`}
+            >
+              <span className="text-xl">{c.icon}</span>
+              <span className="text-xs font-semibold text-zinc-200">{c.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {category && (
+          <div className="mt-4 space-y-2.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">
+              {CATEGORIES.find((c) => c.key === category)?.label}
+            </p>
+            {LIFT_SUBSECTIONS[category].map((sub) => {
+              const subKey = `${category}:${sub.key}`;
+              const isSubOpen = openSub === subKey;
+              const exercises = resolveSubsection(sub);
+              return (
+                <div key={subKey} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+                  <button
+                    onClick={() => {
+                      setOpenSub(isSubOpen ? null : subKey);
+                      setOpenExercise(null);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-zinc-100">{sub.label}</p>
+                      <p className="mt-0.5 text-[11px] text-[#71717a]">{exercises.length} exercises</p>
+                    </div>
+                    <span className="shrink-0 text-[#52525b]">{isSubOpen ? "︿" : "﹀"}</span>
+                  </button>
+                  {isSubOpen && (
+                    <div className="border-t border-zinc-800 px-4 pb-1">
+                      {exercises.map((exercise) => {
+                        const key = `${subKey}:${exercise.name}`;
+                        const isOpen = openExercise === key;
+                        const isLogged = loggedNames.has(exercise.name);
+                        return (
+                          <div key={key} className="border-b border-[#1a1a1d] py-3 last:border-0">
+                            <button
+                              onClick={() => setOpenExercise(isOpen ? null : key)}
+                              className="flex w-full items-center gap-2 text-left"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
+                                <p className="mt-0.5 text-xs text-[#71717a]">
+                                  {exercise.sets} sets · {exercise.repRange} reps
+                                </p>
+                              </div>
+                              {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
+                              <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
+                            </button>
+                            {isOpen && <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              onClick={logWorkout}
+              disabled={logging || logged}
+              className="mt-4 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
+            >
+              {logged ? "Logged for today ✓" : logging ? "Logging..." : "I trained today"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {!planLoading && plan && split && day && (
+        <div className="mt-6">
+          <button
+            onClick={() => setShowToday((v) => !v)}
+            className="flex w-full items-center justify-between gap-3 rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3.5 text-left"
+          >
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-[#e4e4e7]">Today&apos;s workout</p>
+              <p className="mt-0.5 text-xs text-[#71717a]">
+                {split.label} · {day.label} · {day.exercises.length} exercises
+              </p>
+            </div>
+            <span className="shrink-0 text-[#52525b]">{showToday ? "︿" : "﹀"}</span>
+          </button>
+
+          {showToday && (
+            <div className="mt-2 rounded-2xl border border-[#1f1f23] bg-[#0d0d0f] px-4 pb-4">
+              {day.exercises.map((exercise) => {
+                const key = `today:${exercise.name}`;
+                const isOpen = openExercise === key;
+                const isLogged = loggedNames.has(exercise.name);
+                return (
+                  <div key={exercise.name} className="border-b border-[#1a1a1d] py-3 last:border-0">
+                    <button
+                      onClick={() => setOpenExercise(isOpen ? null : key)}
+                      className="flex w-full items-center gap-3 text-left"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
+                        <p className="mt-0.5 text-xs text-[#71717a]">
+                          {exercise.sets} sets · {exercise.repRange} reps
+                        </p>
+                      </div>
+                      {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
+                      <span className="shrink-0 text-[11px] capitalize text-[#52525b]">{exercise.muscles[0]}</span>
+                      <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
+                    </button>
+                    {isOpen && <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />}
+                  </div>
+                );
+              })}
+              <button
+                onClick={logWorkout}
+                disabled={logging || logged}
+                className="mt-4 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
+              >
+                {logged ? "Logged for today ✓" : logging ? "Logging..." : "I trained today"}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {!planLoading && !plan && (
+        <Link
+          href="/train/setup"
+          className="mt-6 flex items-center justify-between rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3.5"
+        >
+          <span className="text-sm font-medium text-[#e4e4e7]">Set up your training split to see today&apos;s workout</span>
+          <span className="text-[#71717a]">›</span>
+        </Link>
+      )}
+
+      <div className="mt-8 flex gap-1 rounded-full bg-zinc-900 p-1">
         <button
           onClick={() => setSex("male")}
           className={`flex-1 rounded-full py-2 text-sm font-semibold ${
@@ -394,160 +547,6 @@ export default function FitnessPage() {
 
       {!muscleRanks && (
         <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
-      )}
-
-      {!planLoading && plan && split && day && (
-        <div className="mt-8">
-          <div className="flex items-baseline justify-between">
-            <span className="text-sm font-semibold text-[#e4e4e7]">Today&apos;s workout</span>
-            <span className="text-xs text-[#52525b]">
-              {split.label} · {day.label}
-            </span>
-          </div>
-          <div className="mt-3">
-            {day.exercises.map((exercise) => {
-              const isOpen = openExercise === exercise.name;
-              const isLogged = loggedNames.has(exercise.name);
-              return (
-                <div key={exercise.name} className="border-b border-[#1a1a1d] py-3">
-                  <button
-                    onClick={() => setOpenExercise(isOpen ? null : exercise.name)}
-                    className="flex w-full items-center gap-3 text-left"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
-                      <p className="mt-0.5 text-xs text-[#71717a]">
-                        {exercise.sets} sets · {exercise.repRange} reps
-                      </p>
-                    </div>
-                    {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
-                    <span className="shrink-0 text-[11px] capitalize text-[#52525b]">{exercise.muscles[0]}</span>
-                    <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
-                  </button>
-                  {isOpen && (
-                    <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <button
-            onClick={() => setShowPicker((v) => !v)}
-            className="mt-3 flex w-full items-center justify-between rounded-xl border border-dashed border-[#27272a] px-3.5 py-2.5 text-left"
-          >
-            <span className="text-xs font-medium text-[#a1a1aa]">
-              {showPicker ? "Hide exercise list" : "Log a different exercise"}
-            </span>
-            <span className="text-[#52525b]">{showPicker ? "︿" : "﹀"}</span>
-          </button>
-
-          {showPicker && (
-            <div className="mt-2.5 rounded-2xl border border-[#1f1f23] bg-[#0d0d0f] p-3">
-              <div className="flex gap-1.5 overflow-x-auto pb-1">
-                <button
-                  onClick={() => setPickerMuscle(null)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
-                    pickerMuscle === null ? "bg-emerald-500 text-black" : "bg-[#18181b] text-[#a1a1aa]"
-                  }`}
-                >
-                  All
-                </button>
-                {MUSCLE_GROUPS.map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setPickerMuscle(m)}
-                    className={`shrink-0 rounded-full px-3 py-1.5 text-[11px] font-semibold ${
-                      pickerMuscle === m ? "bg-emerald-500 text-black" : "bg-[#18181b] text-[#a1a1aa]"
-                    }`}
-                  >
-                    {MUSCLE_LABELS[m]}
-                  </button>
-                ))}
-              </div>
-              <div className="mt-2 max-h-72 overflow-y-auto">
-                {pickerExercises.map((exercise) => {
-                  const isOpen = openExercise === `picker:${exercise.name}`;
-                  const isLogged = loggedNames.has(exercise.name);
-                  return (
-                    <div key={exercise.name} className="border-b border-[#1a1a1d] py-2.5 last:border-0">
-                      <button
-                        onClick={() => setOpenExercise(isOpen ? null : `picker:${exercise.name}`)}
-                        className="flex w-full items-center gap-2 text-left"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[13px] font-medium text-[#e4e4e7]">{exercise.name}</p>
-                          <p className="mt-0.5 text-[11px] text-[#71717a]">
-                            {exercise.sets} sets · {exercise.repRange} reps
-                          </p>
-                        </div>
-                        {isLogged && <span className="shrink-0 text-[11px] font-medium text-emerald-400">✓</span>}
-                        <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
-                      </button>
-                      {isOpen && (
-                        <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {!planLoading && !plan && (
-        <Link
-          href="/train/setup"
-          className="mt-8 flex items-center justify-between rounded-2xl border border-[#1f1f23] bg-[#111113] px-4 py-3.5"
-        >
-          <span className="text-sm font-medium text-[#e4e4e7]">Set up your training split to see today&apos;s workout</span>
-          <span className="text-[#71717a]">›</span>
-        </Link>
-      )}
-
-      <div className="mt-8 grid grid-cols-3 gap-2.5">
-        {CATEGORIES.map((c) => (
-          <button
-            key={c.key}
-            onClick={() => setCategory(c.key)}
-            className={`flex flex-col items-center gap-1 rounded-2xl border px-2 py-3 text-center active:scale-[0.97] ${
-              category === c.key
-                ? "border-emerald-500 bg-emerald-500/10"
-                : "border-zinc-800 bg-zinc-900"
-            }`}
-          >
-            <span className="text-xl">{c.icon}</span>
-            <span className="text-xs font-semibold text-zinc-200">{c.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {category && (
-        <div className="mt-6">
-          <h2 className="text-sm font-semibold text-zinc-300">
-            {CATEGORIES.find((c) => c.key === category)?.label} workout
-          </h2>
-          <div className="mt-3 space-y-2.5">
-            {WORKOUTS[category].map((ex) => (
-              <div key={ex.name} className="rounded-2xl border border-zinc-800 bg-zinc-900 p-3.5">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="text-sm font-semibold text-zinc-100">{ex.name}</p>
-                  <p className="shrink-0 text-xs font-medium text-emerald-400">{ex.sets}</p>
-                </div>
-                <p className="mt-1 text-xs text-zinc-500">{ex.notes}</p>
-              </div>
-            ))}
-          </div>
-
-          <button
-            onClick={logWorkout}
-            disabled={logging || logged}
-            className="mt-5 w-full rounded-xl bg-emerald-500 py-3 text-sm font-semibold text-black disabled:opacity-60"
-          >
-            {logged ? "Logged for today ✓" : logging ? "Logging..." : "I trained today"}
-          </button>
-        </div>
       )}
 
       {showStats && muscleRanks && (

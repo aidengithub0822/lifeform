@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { announceDevMode } from "@/lib/devSeen";
 import { useRouter } from "next/navigation";
 import { formatDistanceToNow } from "date-fns";
 import { createClient } from "@/lib/supabase/client";
@@ -133,6 +134,7 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
         return;
       }
       setIsAdmin(true);
+      announceDevMode(true);
       setDevCode("");
     } catch {
       setDevError("Couldn't reach the server");
@@ -144,6 +146,7 @@ export default function HeaderMenu({ goal }: { goal: Goal }) {
   async function exitDevMode() {
     await fetch("/api/admin/verify", { method: "DELETE" });
     setIsAdmin(false);
+    announceDevMode(false);
   }
 
   async function submitComment() {
