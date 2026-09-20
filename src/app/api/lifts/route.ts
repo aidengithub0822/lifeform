@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const muscle = searchParams.get("muscle");
-  const limit = Math.min(200, Number(searchParams.get("limit") ?? 50));
+  const limit = Math.min(1000, Number(searchParams.get("limit") ?? 50));
 
   if (muscle) {
     if (!MUSCLE_GROUPS.includes(muscle as (typeof MUSCLE_GROUPS)[number])) {

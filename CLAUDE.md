@@ -383,8 +383,10 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   buttons (Chest/Back/Shoulders/Arms/Legs/Abs) open into sub-muscle sections
   (Arms -> Biceps/Triceps, Legs -> Quads/Glutes/Hamstrings/Calves, etc.), each
   listing every exercise with an inline `LogSetForm`. The old "Log a different
-  exercise" picker is gone. "Today's workout" is a collapsed button below
-  the muscle buttons; the muscle map/rank section sits below that. Exercise
+  exercise" picker is gone. Rank card + body map stay at the top; the muscle
+  buttons sit under the map and "Today's workout" is a collapsed button below
+  them. Lifts the user has logged before (from `/api/lifts?limit=1000`) sort
+  to the top of each section (most recent first) with a light green tint. Exercise
   names in `LIFT_SUBSECTIONS` MUST match `ALL_EXERCISES` (trainingSplits.ts),
   which `/api/lifts` validates against — to add an exercise, add it to
   `EXTRA_EXERCISES` there AND list it in a subsection here.

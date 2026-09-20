@@ -169,6 +169,12 @@ export default function FitnessPage() {
   const [loggedNames, setLoggedNames] = useState<Set<string>>(new Set());
   const [openSub, setOpenSub] = useState<string | null>(null);
   const [showToday, setShowToday] = useState(false);
+  // Remembered lifts: exercise name -> recency (lower = logged more recently).
+  // `history` drives the green highlight and updates live as you log;
+  // `orderHistory` is what the lists are SORTED by and is only refreshed when
+  // you open a section, so a row never jumps out from under your finger.
+  const [history, setHistory] = useState<Map<string, number>>(new Map());
+  const [orderHistory, setOrderHistory] = useState<Map<string, number>>(new Map());
   const [muscleRanks, setMuscleRanks] = useState<MuscleRankApiResult[] | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [rankSummary, setRankSummary] = useState<RankSummary | null>(null);
@@ -189,7 +195,25 @@ export default function FitnessPage() {
     })();
     refreshMuscleRanks();
     refreshRankSummary();
+    loadHistory();
   }, []);
+
+  async function loadHistory() {
+    try {
+      const res = await fetch("/api/lifts?limit=1000");
+      if (!res.ok) return;
+      const body = await res.json();
+      const map = new Map<string, number>();
+      // The API returns newest first, so a name's first appearance is its latest log.
+      for (const l of (body.lifts ?? []) as Lift[]) {
+        if (!map.has(l.lift_name)) map.set(l.lift_name, map.size);
+      }
+      setHistory(map);
+      setOrderHistory(map);
+    } catch {
+      // Highlighting is a nicety — the lists still work without it.
+    }
+  }
 
   async function refreshMuscleRanks() {
     const res = await fetch("/api/muscle-rank");
@@ -214,6 +238,13 @@ export default function FitnessPage() {
 
   function markLogged(exerciseName: string) {
     setLoggedNames((prev) => new Set(prev).add(exerciseName));
+    setHistory((prev) => {
+      const next = new Map(prev);
+      let min = 0;
+      for (const v of next.values()) min = Math.min(min, v);
+      next.set(exerciseName, min - 1);
+      return next;
+    });
     // The set that was just logged may have moved this muscle's rank —
     // refresh so the map reflects it without a full page reload.
     refreshMuscleRanks();
@@ -244,7 +275,7 @@ export default function FitnessPage() {
         ← Back
       </Link>
       <h1 className="mt-2 text-2xl font-bold">Fitness</h1>
-      <p className="mt-1 text-sm text-zinc-400">Log your lifts, track your ranks, and see what to train today.</p>
+      <p className="mt-1 text-sm text-zinc-400">Pick a muscle group to see what to train today.</p>
 
       {rankSummary && (
         <div
@@ -309,7 +340,97 @@ export default function FitnessPage() {
         🏋️ My lifts — edit or delete
       </button>
 
-      <section className="mt-6">
+      <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
+        <button
+          onClick={() => setSex("male")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Man
+        </button>
+        <button
+          onClick={() => setSex("female")}
+          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
+            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
+          }`}
+        >
+          Woman
+        </button>
+      </div>
+
+      <p className="mt-4 text-xs text-[#71717a]">
+        Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
+      </p>
+      <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
+        {RANK_TIERS.filter((t) => t.tier !== "newbie").map((t) => (
+          <div key={t.tier} className="flex items-center gap-1">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color ?? "#3f3f46" }} />
+            <span className="text-[10px] font-medium text-[#71717a]">{t.label}</span>
+          </div>
+        ))}
+      </div>
+
+      {selectedRank && (
+        <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
+            <div className="flex items-center gap-1.5">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={rankMeta(selectedRank.tier).badge} alt="" className="h-7 w-7" />
+              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: rankMeta(selectedRank.tier).color ?? "#a1a1aa" }}>
+                {rankMeta(selectedRank.tier).label}
+              </span>
+            </div>
+          </div>
+          {selectedRank.bestLift ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">
+              Best logged: {selectedRank.bestLift.name} — {selectedRank.bestLift.weight_lb}lb × {selectedRank.bestLift.reps}
+            </p>
+          ) : selectedRank.totalSetsLogged > 0 ? (
+            <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
+          ) : (
+            <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
+          )}
+
+          {selectedRank.nextTier ? (
+            <div className="mt-3">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-[#71717a]">
+                  Progress to {rankMeta(selectedRank.nextTier).label}
+                </span>
+                <span className="text-[10px] font-semibold text-[#a1a1aa]">{Math.round(selectedRank.progress * 100)}%</span>
+              </div>
+              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${Math.max(4, selectedRank.progress * 100)}%`,
+                    backgroundColor: rankMeta(selectedRank.nextTier).color ?? "#71717a",
+                  }}
+                />
+              </div>
+              <p className="mt-1.5 text-[11px] text-[#71717a]">
+                {selectedRank.limitingFactor === "days" && selectedRank.daysNeededForNextTier
+                  ? `${selectedRank.daysNeededForNextTier} more qualifying training day${selectedRank.daysNeededForNextTier === 1 ? "" : "s"} at this strength level to rank up.`
+                  : selectedRank.limitingFactor === "score" && selectedRank.scoreNeededForNextTier
+                    ? "Lift heavier relative to your bodyweight to open up qualifying days for this tier."
+                    : "Keep training consistently to rank up."}
+              </p>
+            </div>
+          ) : (
+            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
+          )}
+        </div>
+      )}
+
+      {!muscleRanks && (
+        <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
+      )}
+
+      <section className="mt-8">
         <h2 className="text-sm font-semibold text-zinc-200">Log a lift</h2>
         <p className="mt-0.5 text-xs text-[#71717a]">Pick a muscle group, then a muscle, then tap an exercise to log it.</p>
         <div className="mt-3 grid grid-cols-3 gap-2.5">
@@ -320,6 +441,7 @@ export default function FitnessPage() {
                 setCategory(category === c.key ? null : c.key);
                 setOpenSub(null);
                 setOpenExercise(null);
+                setOrderHistory(history);
               }}
               className={`flex flex-col items-center gap-1 rounded-2xl border px-2 py-3.5 text-center active:scale-[0.97] ${
                 category === c.key ? "border-emerald-500 bg-emerald-500/10" : "border-zinc-800 bg-zinc-900"
@@ -339,19 +461,36 @@ export default function FitnessPage() {
             {LIFT_SUBSECTIONS[category].map((sub) => {
               const subKey = `${category}:${sub.key}`;
               const isSubOpen = openSub === subKey;
-              const exercises = resolveSubsection(sub);
+              // Lifts you've logged before float to the top (most recent first),
+              // then everything else in the catalog's own order.
+              const exercises = resolveSubsection(sub)
+                .map((exercise, idx) => ({ exercise, idx }))
+                .sort((a, b) => {
+                  const ra = orderHistory.get(a.exercise.name);
+                  const rb = orderHistory.get(b.exercise.name);
+                  if (ra !== undefined && rb !== undefined) return ra - rb;
+                  if (ra !== undefined) return -1;
+                  if (rb !== undefined) return 1;
+                  return a.idx - b.idx;
+                })
+                .map((x) => x.exercise);
+              const rememberedCount = exercises.filter((e) => history.has(e.name)).length;
               return (
                 <div key={subKey} className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
                   <button
                     onClick={() => {
                       setOpenSub(isSubOpen ? null : subKey);
                       setOpenExercise(null);
+                      setOrderHistory(history);
                     }}
                     className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-zinc-100">{sub.label}</p>
-                      <p className="mt-0.5 text-[11px] text-[#71717a]">{exercises.length} exercises</p>
+                      <p className="mt-0.5 text-[11px] text-[#71717a]">
+                        {exercises.length} exercises
+                        {rememberedCount > 0 && <span className="text-emerald-400"> · {rememberedCount} logged before</span>}
+                      </p>
                     </div>
                     <span className="shrink-0 text-[#52525b]">{isSubOpen ? "︿" : "﹀"}</span>
                   </button>
@@ -361,8 +500,14 @@ export default function FitnessPage() {
                         const key = `${subKey}:${exercise.name}`;
                         const isOpen = openExercise === key;
                         const isLogged = loggedNames.has(exercise.name);
+                        const remembered = history.has(exercise.name);
                         return (
-                          <div key={key} className="border-b border-[#1a1a1d] py-3 last:border-0">
+                          <div
+                            key={key}
+                            className={`border-b border-[#1a1a1d] last:border-0 ${
+                              remembered ? "-mx-4 border-l-2 border-l-emerald-500/60 bg-emerald-500/[0.07] px-[14px] py-3" : "py-3"
+                            }`}
+                          >
                             <button
                               onClick={() => setOpenExercise(isOpen ? null : key)}
                               className="flex w-full items-center gap-2 text-left"
@@ -459,96 +604,6 @@ export default function FitnessPage() {
         </Link>
       )}
 
-      <div className="mt-8 flex gap-1 rounded-full bg-zinc-900 p-1">
-        <button
-          onClick={() => setSex("male")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Man
-        </button>
-        <button
-          onClick={() => setSex("female")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Woman
-        </button>
-      </div>
-
-      <p className="mt-4 text-xs text-[#71717a]">
-        Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
-      </p>
-      <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />
-
-      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
-        {RANK_TIERS.filter((t) => t.tier !== "newbie").map((t) => (
-          <div key={t.tier} className="flex items-center gap-1">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: t.color ?? "#3f3f46" }} />
-            <span className="text-[10px] font-medium text-[#71717a]">{t.label}</span>
-          </div>
-        ))}
-      </div>
-
-      {selectedRank && (
-        <div className="mt-3 rounded-2xl border border-[#1f1f23] bg-[#111113] p-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-[#f4f4f5]">{MUSCLE_LABELS[selectedRank.muscle]}</span>
-            <div className="flex items-center gap-1.5">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={rankMeta(selectedRank.tier).badge} alt="" className="h-7 w-7" />
-              <span className="text-xs font-bold uppercase tracking-wide" style={{ color: rankMeta(selectedRank.tier).color ?? "#a1a1aa" }}>
-                {rankMeta(selectedRank.tier).label}
-              </span>
-            </div>
-          </div>
-          {selectedRank.bestLift ? (
-            <p className="mt-1.5 text-xs text-[#a1a1aa]">
-              Best logged: {selectedRank.bestLift.name} — {selectedRank.bestLift.weight_lb}lb × {selectedRank.bestLift.reps}
-            </p>
-          ) : selectedRank.totalSetsLogged > 0 ? (
-            <p className="mt-1.5 text-xs text-[#a1a1aa]">{selectedRank.totalSetsLogged} sets logged so far — keep going to rank up.</p>
-          ) : (
-            <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
-          )}
-
-          {selectedRank.nextTier ? (
-            <div className="mt-3">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-[#71717a]">
-                  Progress to {rankMeta(selectedRank.nextTier).label}
-                </span>
-                <span className="text-[10px] font-semibold text-[#a1a1aa]">{Math.round(selectedRank.progress * 100)}%</span>
-              </div>
-              <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-[#1f1f23]">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{
-                    width: `${Math.max(4, selectedRank.progress * 100)}%`,
-                    backgroundColor: rankMeta(selectedRank.nextTier).color ?? "#71717a",
-                  }}
-                />
-              </div>
-              <p className="mt-1.5 text-[11px] text-[#71717a]">
-                {selectedRank.limitingFactor === "days" && selectedRank.daysNeededForNextTier
-                  ? `${selectedRank.daysNeededForNextTier} more qualifying training day${selectedRank.daysNeededForNextTier === 1 ? "" : "s"} at this strength level to rank up.`
-                  : selectedRank.limitingFactor === "score" && selectedRank.scoreNeededForNextTier
-                    ? "Lift heavier relative to your bodyweight to open up qualifying days for this tier."
-                    : "Keep training consistently to rank up."}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#71717a]">Top tier reached</p>
-          )}
-        </div>
-      )}
-
-      {!muscleRanks && (
-        <p className="mt-3 text-center text-xs text-[#52525b]">Loading muscle ranks…</p>
-      )}
-
       {showStats && muscleRanks && (
         <ExerciseStatsPanel
           rows={muscleRanks.map((r) => ({ muscle: r.muscle, tier: r.tier, bestLift: r.bestLift, totalSetsLogged: r.totalSetsLogged }))}
@@ -561,6 +616,7 @@ export default function FitnessPage() {
           onChanged={() => {
             refreshMuscleRanks();
             refreshRankSummary();
+            loadHistory();
           }}
         />
       )}
