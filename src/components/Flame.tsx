@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { tierMeta, FREEZE_COST_XP, MAX_FREEZES, type FlameTier } from "@/lib/streak";
 import XpSparkToast from "@/components/XpSparkToast";
+import BottomSheet from "@/components/BottomSheet";
 
 interface StreakData {
   currentStreak: number;
@@ -99,104 +100,95 @@ export default function Flame() {
         </span>
       </button>
 
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-end bg-black/60"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            className="w-full rounded-t-3xl border-t border-zinc-800 bg-zinc-950 p-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
+      <BottomSheet open={open} onClose={() => setOpen(false)}>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+          <div className="flex flex-col items-center">
+            <FlameIcon color={meta.color} lit={data.today.grownToday} size={56} />
+            <p className="mt-2 text-3xl font-extrabold" style={{ color: meta.color }}>
+              {data.currentStreak} day{data.currentStreak === 1 ? "" : "s"}
+            </p>
+            <p className="text-sm text-zinc-400">{meta.label} tier · longest {data.longestStreak}</p>
+          </div>
+
+          <div className="mt-6 space-y-3 rounded-2xl bg-zinc-900 p-4">
+            <Row label="Food logged today" value={data.today.loggedFoodToday ? "Yes ✅" : "Not yet"} />
+            <Row label="Trained today" value={data.today.workoutToday ? "Yes ✅" : "Not yet"} />
+            <p className="text-xs text-zinc-500">
+              {data.today.grownToday
+                ? "Sparked — today already grew the flame."
+                : "Log a meal or a training session to spark the flame today."}
+            </p>
+          </div>
+
+          <button
+            onClick={logWorkoutToday}
+            disabled={busy}
+            className="mt-4 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
           >
-            <div className="mx-auto mb-5 h-1 w-10 rounded-full bg-zinc-700" />
-            <div className="flex flex-col items-center">
-              <FlameIcon color={meta.color} lit={data.today.grownToday} size={56} />
-              <p className="mt-2 text-3xl font-extrabold" style={{ color: meta.color }}>
-                {data.currentStreak} day{data.currentStreak === 1 ? "" : "s"}
-              </p>
-              <p className="text-sm text-zinc-400">{meta.label} tier · longest {data.longestStreak}</p>
-            </div>
+            Log today&apos;s training session
+          </button>
 
-            <div className="mt-6 space-y-3 rounded-2xl bg-zinc-900 p-4">
-              <Row label="Food logged today" value={data.today.loggedFoodToday ? "Yes ✅" : "Not yet"} />
-              <Row label="Trained today" value={data.today.workoutToday ? "Yes ✅" : "Not yet"} />
+          <div className="mt-4 flex items-center justify-between rounded-2xl bg-zinc-900 p-4">
+            <div>
+              <p className="text-sm font-semibold">{data.xp} XP</p>
               <p className="text-xs text-zinc-500">
-                {data.today.grownToday
-                  ? "Sparked — today already grew the flame."
-                  : "Log a meal or a training session to spark the flame today."}
+                {data.freezesAvailable}/{MAX_FREEZES} streak freezes
               </p>
             </div>
-
             <button
-              onClick={logWorkoutToday}
-              disabled={busy}
-              className="mt-4 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
+              onClick={buyFreeze}
+              disabled={busy || data.freezesAvailable >= MAX_FREEZES || data.xp < FREEZE_COST_XP}
+              className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
             >
-              Log today&apos;s training session
+              Buy freeze ({FREEZE_COST_XP} XP)
             </button>
+          </div>
+          {msg && <p className="mt-2 text-center text-xs text-red-400">{msg}</p>}
+          <p className="mt-3 text-center text-[11px] text-zinc-600">
+            A freeze auto-covers one missed day (sick day, travel, etc.) so your streak survives.
+          </p>
 
-            <div className="mt-4 flex items-center justify-between rounded-2xl bg-zinc-900 p-4">
-              <div>
-                <p className="text-sm font-semibold">{data.xp} XP</p>
-                <p className="text-xs text-zinc-500">
-                  {data.freezesAvailable}/{MAX_FREEZES} streak freezes
-                </p>
-              </div>
+          <div className="mt-5 rounded-2xl bg-zinc-900 p-4">
+            <p className="text-sm font-semibold">Home Screen widget</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              See the flame on your home screen without opening the app. Install the free{" "}
+              <span className="text-zinc-300">Scriptable</span> app, create a new script with the
+              one in this project&apos;s <code className="text-zinc-400">scriptable/</code> folder,
+              then long-press your home screen → add a Scriptable widget → pick this script and
+              paste in this URL when it asks for a parameter:
+            </p>
+            <div className="mt-2 flex items-center gap-2">
+              <input
+                readOnly
+                value={
+                  typeof window !== "undefined"
+                    ? `${window.location.origin}/api/widget?token=${data.widgetToken}`
+                    : ""
+                }
+                className="min-w-0 flex-1 truncate rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[11px] text-zinc-400"
+              />
               <button
-                onClick={buyFreeze}
-                disabled={busy || data.freezesAvailable >= MAX_FREEZES || data.xp < FREEZE_COST_XP}
-                className="rounded-xl bg-blue-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+                onClick={() => {
+                  navigator.clipboard
+                    .writeText(`${window.location.origin}/api/widget?token=${data.widgetToken}`)
+                    .then(() => {
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 1500);
+                    });
+                }}
+                className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-emerald-400"
               >
-                Buy freeze ({FREEZE_COST_XP} XP)
+                {copied ? "Copied!" : "Copy"}
               </button>
             </div>
-            {msg && <p className="mt-2 text-center text-xs text-red-400">{msg}</p>}
-            <p className="mt-3 text-center text-[11px] text-zinc-600">
-              A freeze auto-covers one missed day (sick day, travel, etc.) so your streak survives.
+            <p className="mt-2 text-[11px] text-zinc-600">
+              Tap <span className="text-zinc-400">Copy</span> — the box above is truncated on screen, so
+              manually selecting the text can grab an incomplete link and the widget will show an error.
+              Treat this link like a password — anyone with it can see your streak.
             </p>
-
-            <div className="mt-5 rounded-2xl bg-zinc-900 p-4">
-              <p className="text-sm font-semibold">Home Screen widget</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                See the flame on your home screen without opening the app. Install the free{" "}
-                <span className="text-zinc-300">Scriptable</span> app, create a new script with the
-                one in this project&apos;s <code className="text-zinc-400">scriptable/</code> folder,
-                then long-press your home screen → add a Scriptable widget → pick this script and
-                paste in this URL when it asks for a parameter:
-              </p>
-              <div className="mt-2 flex items-center gap-2">
-                <input
-                  readOnly
-                  value={
-                    typeof window !== "undefined"
-                      ? `${window.location.origin}/api/widget?token=${data.widgetToken}`
-                      : ""
-                  }
-                  className="min-w-0 flex-1 truncate rounded-lg border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-[11px] text-zinc-400"
-                />
-                <button
-                  onClick={() => {
-                    navigator.clipboard
-                      .writeText(`${window.location.origin}/api/widget?token=${data.widgetToken}`)
-                      .then(() => {
-                        setCopied(true);
-                        setTimeout(() => setCopied(false), 1500);
-                      });
-                  }}
-                  className="shrink-0 rounded-lg bg-zinc-800 px-3 py-1.5 text-xs font-semibold text-emerald-400"
-                >
-                  {copied ? "Copied!" : "Copy"}
-                </button>
-              </div>
-              <p className="mt-2 text-[11px] text-zinc-600">
-                Tap <span className="text-zinc-400">Copy</span> — the box above is truncated on screen, so
-                manually selecting the text can grab an incomplete link and the widget will show an error.
-                Treat this link like a password — anyone with it can see your streak.
-              </p>
-            </div>
           </div>
         </div>
-      )}
+      </BottomSheet>
     </>
   );
 }
