@@ -113,6 +113,13 @@ export async function geminiGenerateJSON<T = Record<string, unknown>>(opts: {
   model?: string;
   systemInstruction?: string;
   maxOutputTokens?: number;
+  // Gemini 3's "thinking" reasoning mode defaults to a high level even for a
+  // plain structured-JSON extraction call like these, which made food scans
+  // and photo analysis take far longer than the task needs. These calls are
+  // straightforward extraction, not multi-step reasoning, so thinking is off
+  // by default (thinkingBudget: 0) for speed; pass thinkingBudget to opt a
+  // specific call back into some reasoning if one ever needs it.
+  thinkingBudget?: number;
 }): Promise<T> {
   const ai = geminiClient();
   const response = await ai.models.generateContent({
@@ -121,6 +128,7 @@ export async function geminiGenerateJSON<T = Record<string, unknown>>(opts: {
     config: {
       responseMimeType: "application/json",
       responseSchema: toGeminiSchema(opts.schema),
+      thinkingConfig: { thinkingBudget: opts.thinkingBudget ?? 0 },
       ...(opts.systemInstruction ? { systemInstruction: opts.systemInstruction } : {}),
       ...(opts.maxOutputTokens ? { maxOutputTokens: opts.maxOutputTokens } : {}),
     },
