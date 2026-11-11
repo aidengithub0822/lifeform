@@ -1,42 +1,33 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import type { Goal } from "@/lib/types";
-import { AI_MODEL } from "@/lib/ai";
+import { groqGenerateJSON, explainAiError } from "@/lib/ai";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = AI_MODEL;
-
-const ESTIMATE_TOOL = {
-  name: "estimate_recipe_nutrition",
-  description:
-    "Report total nutrition for the whole recipe (all ingredients combined) plus a recommended number of servings to split it into.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      total_calories: { type: "number", description: "Total calories for the entire recipe, all servings combined" },
-      total_protein_g: { type: "number" },
-      total_carbs_g: { type: "number" },
-      total_fat_g: { type: "number" },
-      recommended_servings: {
-        type: "number",
-        description: "Whole number of servings to split this recipe into so each serving fits the user's goal well",
-      },
-      serving_note: {
-        type: "string",
-        description:
-          "1-2 sentences explaining the recommended serving size in terms of this user's specific goal (e.g. calories/protein per serving vs. their targets)",
-      },
+const ESTIMATE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    total_calories: { type: "number", description: "Total calories for the entire recipe, all servings combined" },
+    total_protein_g: { type: "number" },
+    total_carbs_g: { type: "number" },
+    total_fat_g: { type: "number" },
+    recommended_servings: {
+      type: "number",
+      description: "Whole number of servings to split this recipe into so each serving fits the user's goal well",
     },
-    required: [
-      "total_calories",
-      "total_protein_g",
-      "total_carbs_g",
-      "total_fat_g",
-      "recommended_servings",
-      "serving_note",
-    ],
+    serving_note: {
+      type: "string",
+      description:
+        "1-2 sentences explaining the recommended serving size in terms of this user's specific goal (e.g. calories/protein per serving vs. their targets)",
+    },
   },
+  required: [
+    "total_calories",
+    "total_protein_g",
+    "total_carbs_g",
+    "total_fat_g",
+    "recommended_servings",
+    "serving_note",
+  ],
 };
 
 function goalContext(goal: Goal | null): string {
@@ -53,9 +44,9 @@ function goalContext(goal: Goal | null): string {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return NextResponse.json(
-      { error: "Server is missing ANTHROPIC_API_KEY. Add it in your deployment's environment variables." },
+      { error: "Server is missing GROQ_API_KEY. Add it in your deployment's environment variables." },
       { status: 500 }
     );
   }
@@ -84,15 +75,13 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   try {
-    const message = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 1024,
-      tools: [ESTIMATE_TOOL],
-      tool_choice: { type: "tool", name: "estimate_recipe_nutrition" },
-      messages: [
-        {
-          role: "user",
-          content: `Estimate the total nutrition for this recipe and recommend how many servings to split it into.
+    const result = await groqGenerateJSON({
+      toolName: "estimate_recipe_nutrition",
+      toolDescription:
+        "Report total nutrition for the whole recipe (all ingredients combined) plus a recommended number of servings to split it into.",
+      schema: ESTIMATE_SCHEMA,
+      maxTokens: 1024,
+      prompt: `Estimate the total nutrition for this recipe and recommend how many servings to split it into.
 
 Recipe name: ${name || "(untitled)"}
 Ingredients: ${ingredients}
@@ -101,18 +90,12 @@ ${instructions ? `Instructions: ${instructions}` : ""}
 ${goalContext(goal as Goal | null)}
 
 Give your best realistic estimate from typical ingredient quantities implied by the list, even with some uncertainty — state any assumptions briefly in serving_note rather than refusing to estimate.`,
-        },
-      ],
     });
 
-    const toolUse = message.content.find((c) => c.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
-      return NextResponse.json({ error: "Model did not return structured data" }, { status: 502 });
-    }
-
-    return NextResponse.json(toolUse.input);
+    return NextResponse.json(result);
   } catch (err) {
     console.error(err);
-    return NextResponse.json({ error: "Estimate failed. Try again with more specific ingredients." }, { status: 500 });
+    const { status, message } = explainAiError(err);
+    return NextResponse.json({ error: message }, { status });
   }
 }

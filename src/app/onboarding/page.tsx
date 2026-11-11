@@ -42,6 +42,7 @@ export default function OnboardingPage() {
 
   const [weight, setWeight] = useState(140);
   const [height, setHeight] = useState(72);
+  const [sex, setSex] = useState<"male" | "female">("male");
   const [phase, setPhase] = useState<GoalPhase>("bulk");
   const [weeklyRate, setWeeklyRate] = useState(0.75);
   const [saving, setSaving] = useState(false);
@@ -64,13 +65,14 @@ export default function OnboardingPage() {
           .maybeSingle<{ username: string | null }>(),
         supabase
           .from("goals")
-          .select("phase, current_weight_lb, height_in, weekly_rate_lb")
+          .select("phase, current_weight_lb, height_in, weekly_rate_lb, sex")
           .eq("user_id", user.id)
           .maybeSingle<{
             phase: GoalPhase;
             current_weight_lb: number;
             height_in: number;
             weekly_rate_lb: number;
+            sex: string | null;
           }>(),
       ]);
       if (!profile?.username) {
@@ -89,6 +91,7 @@ export default function OnboardingPage() {
         setHeight(goal.height_in);
         setPhase(goal.phase);
         setWeeklyRate(goal.weekly_rate_lb);
+        if (goal.sex === "male" || goal.sex === "female") setSex(goal.sex);
         setStep("targets");
       } else {
         setStep("intro");
@@ -154,7 +157,7 @@ export default function OnboardingPage() {
       current_weight_lb: weight,
       height_in: height,
       weekly_rate_lb: weeklyRate,
-      sex: "male",
+      sex,
     });
     setSaving(false);
     if (error) {
@@ -274,6 +277,25 @@ export default function OnboardingPage() {
             onChange={(e) => setHeight(Number(e.target.value))}
             className="w-full"
           />
+        </Field>
+
+        <Field label="Sex">
+          <div className="grid grid-cols-2 gap-2">
+            {(["male", "female"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setSex(s)}
+                className={`rounded-xl py-2 text-sm font-semibold capitalize ${
+                  sex === s ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-300"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <p className="mt-1.5 text-[11px] text-zinc-500">
+            Used for strength-rank comparisons and to set which body view shows first on the Fitness page.
+          </p>
         </Field>
 
         <Field label="Phase">

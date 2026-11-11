@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
+import type Groq from "groq-sdk";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SPLITS, currentDay, MUSCLE_GROUPS, MUSCLE_LABELS } from "@/lib/trainingSplits";
@@ -19,10 +19,9 @@ import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
 import { todayLocal } from "@/lib/timezone";
 import { resolveUserTimezone } from "@/lib/requestTimezone";
 import type { Goal, Measurement, TrainingPlan, Lift, ProgressPhoto, FoodLog } from "@/lib/types";
-import { AI_MODEL, createWithFallback, explainAiError } from "@/lib/ai";
+import { groqClient, GROQ_MODEL, explainAiError, type GroqToolDef } from "@/lib/ai";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = AI_MODEL;
+const MODEL = GROQ_MODEL;
 
 type MeasurementRow = Pick<Measurement, "id" | "logged_at" | "weight_lb">;
 type FoodLogRow = Pick<FoodLog, "id" | "logged_at" | "food_name" | "calories" | "protein_g" | "score">;
@@ -236,112 +235,139 @@ FORMATTING (this is shown in a small phone chat bubble, so it must be easy to re
 
 const VALID_RANK_TIERS = RANK_TIERS.map((t) => t.tier);
 
-const TOOLS: Anthropic.Tool[] = [
+const TOOLS: GroqToolDef[] = [
   {
-    name: "update_measurement",
-    description: "Correct an existing weight/measurement log entry's date and/or value.",
-    input_schema: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "The [id ...] shown next to the entry in your context — never guess this." },
-        logged_at: { type: "string", description: "New date, YYYY-MM-DD. Omit to leave unchanged." },
-        weight_lb: { type: "number", description: "New weight in lb. Omit to leave unchanged." },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    name: "add_measurement",
-    description: "Add a missing weight/measurement log entry for a past (or today's) date.",
-    input_schema: {
-      type: "object",
-      properties: {
-        logged_at: { type: "string", description: "Date, YYYY-MM-DD." },
-        weight_lb: { type: "number" },
-      },
-      required: ["logged_at", "weight_lb"],
-    },
-  },
-  {
-    name: "delete_measurement",
-    description: "Delete a weight/measurement log entry (e.g. a duplicate or accidental entry).",
-    input_schema: {
-      type: "object",
-      properties: { id: { type: "string" } },
-      required: ["id"],
-    },
-  },
-  {
-    name: "update_food_log",
-    description: "Correct an existing food log entry — its date/time, nutrition numbers, name, or its 0-100 quality score.",
-    input_schema: {
-      type: "object",
-      properties: {
-        id: { type: "string", description: "The [id ...] shown next to the entry in your context — never guess this." },
-        logged_at: { type: "string", description: "New ISO timestamp. Omit to leave unchanged." },
-        food_name: { type: "string" },
-        calories: { type: "number" },
-        protein_g: { type: "number" },
-        carbs_g: { type: "number" },
-        fat_g: { type: "number" },
-        score: { type: "number", description: "0-100 quality score override." },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    name: "delete_food_log",
-    description: "Delete a food log entry.",
-    input_schema: {
-      type: "object",
-      properties: { id: { type: "string" } },
-      required: ["id"],
-    },
-  },
-  {
-    name: "shift_dates",
-    description:
-      "Bulk-shift the dates of ALL of this user's rows in one table by N days — for fixing a systemic date bug (e.g. the app logged everything a day ahead of the real day), not for a single one-off correction (use update_measurement/update_food_log for that instead).",
-    input_schema: {
-      type: "object",
-      properties: {
-        table: { type: "string", enum: ["measurements", "food_logs", "workouts"] },
-        days: { type: "number", description: "Positive to move dates later, negative to move them earlier. Usually 1 or -1." },
-        since: { type: "string", description: "Optional YYYY-MM-DD — only shift rows on or after this date. Omit to shift everything." },
-      },
-      required: ["table", "days"],
-    },
-  },
-  {
-    name: "adjust_streak",
-    description: "Manually correct the user's streak/XP state after a bug threw it off.",
-    input_schema: {
-      type: "object",
-      properties: {
-        current_streak: { type: "number" },
-        longest_streak: { type: "number" },
-        xp: { type: "number" },
-        last_checked_date: { type: "string", description: "YYYY-MM-DD" },
+    type: "function",
+    function: {
+      name: "update_measurement",
+      description: "Correct an existing weight/measurement log entry's date and/or value.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The [id ...] shown next to the entry in your context — never guess this." },
+          logged_at: { type: "string", description: "New date, YYYY-MM-DD. Omit to leave unchanged." },
+          weight_lb: { type: "number", description: "New weight in lb. Omit to leave unchanged." },
+        },
+        required: ["id"],
       },
     },
   },
   {
-    name: "set_rank",
-    description:
-      "Manually override the user's overall rank tier badge. This is a CORRECTION tool for when the displayed rank is wrong because of a bug or stale computation — it is not a way to grant a rank the user's real data doesn't support. Use your own judgment before calling this; refuse in your reply instead of calling it if the request isn't a genuine correction.",
-    input_schema: {
-      type: "object",
-      properties: { tier: { type: "string", enum: VALID_RANK_TIERS } },
-      required: ["tier"],
+    type: "function",
+    function: {
+      name: "add_measurement",
+      description: "Add a missing weight/measurement log entry for a past (or today's) date.",
+      parameters: {
+        type: "object",
+        properties: {
+          logged_at: { type: "string", description: "Date, YYYY-MM-DD." },
+          weight_lb: { type: "number" },
+        },
+        required: ["logged_at", "weight_lb"],
+      },
     },
   },
   {
-    name: "reanalyze_photo",
-    description: "Re-run the AI leanness/definition analysis on a specific progress photo (e.g. if the user says its score looks wrong, or it never got analyzed).",
-    input_schema: {
-      type: "object",
-      properties: { photo_id: { type: "string", description: "The [photo id ...] shown in your context." } },
-      required: ["photo_id"],
+    type: "function",
+    function: {
+      name: "delete_measurement",
+      description: "Delete a weight/measurement log entry (e.g. a duplicate or accidental entry).",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_food_log",
+      description: "Correct an existing food log entry — its date/time, nutrition numbers, name, or its 0-100 quality score.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "The [id ...] shown next to the entry in your context — never guess this." },
+          logged_at: { type: "string", description: "New ISO timestamp. Omit to leave unchanged." },
+          food_name: { type: "string" },
+          calories: { type: "number" },
+          protein_g: { type: "number" },
+          carbs_g: { type: "number" },
+          fat_g: { type: "number" },
+          score: { type: "number", description: "0-100 quality score override." },
+        },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_food_log",
+      description: "Delete a food log entry.",
+      parameters: {
+        type: "object",
+        properties: { id: { type: "string" } },
+        required: ["id"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "shift_dates",
+      description:
+        "Bulk-shift the dates of ALL of this user's rows in one table by N days — for fixing a systemic date bug (e.g. the app logged everything a day ahead of the real day), not for a single one-off correction (use update_measurement/update_food_log for that instead).",
+      parameters: {
+        type: "object",
+        properties: {
+          table: { type: "string", enum: ["measurements", "food_logs", "workouts"] },
+          days: { type: "number", description: "Positive to move dates later, negative to move them earlier. Usually 1 or -1." },
+          since: { type: "string", description: "Optional YYYY-MM-DD — only shift rows on or after this date. Omit to shift everything." },
+        },
+        required: ["table", "days"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "adjust_streak",
+      description: "Manually correct the user's streak/XP state after a bug threw it off.",
+      parameters: {
+        type: "object",
+        properties: {
+          current_streak: { type: "number" },
+          longest_streak: { type: "number" },
+          xp: { type: "number" },
+          last_checked_date: { type: "string", description: "YYYY-MM-DD" },
+        },
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "set_rank",
+      description:
+        "Manually override the user's overall rank tier badge. This is a CORRECTION tool for when the displayed rank is wrong because of a bug or stale computation — it is not a way to grant a rank the user's real data doesn't support. Use your own judgment before calling this; refuse in your reply instead of calling it if the request isn't a genuine correction.",
+      parameters: {
+        type: "object",
+        properties: { tier: { type: "string", enum: VALID_RANK_TIERS } },
+        required: ["tier"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "reanalyze_photo",
+      description: "Re-run the AI leanness/definition analysis on a specific progress photo (e.g. if the user says its score looks wrong, or it never got analyzed).",
+      parameters: {
+        type: "object",
+        properties: { photo_id: { type: "string", description: "The [photo id ...] shown in your context." } },
+        required: ["photo_id"],
+      },
     },
   },
 ];
@@ -430,7 +456,7 @@ async function executeTool(name: string, input: any, supabase: any, userId: stri
         return { ok: true };
       }
       case "reanalyze_photo": {
-        const result = await analyzeProgressPhoto(supabase, anthropic, MODEL, userId, input.photo_id);
+        const result = await analyzeProgressPhoto(supabase, userId, input.photo_id);
         return { ok: true, ...result };
       }
       default:
@@ -442,9 +468,9 @@ async function executeTool(name: string, input: any, supabase: any, userId: stri
 }
 
 export async function POST(request: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return NextResponse.json(
-      { error: "Server is missing ANTHROPIC_API_KEY. Add it in your deployment's environment variables." },
+      { error: "Server is missing GROQ_API_KEY. Add it in your deployment's environment variables." },
       { status: 500 }
     );
   }
@@ -563,38 +589,42 @@ export async function POST(request: Request) {
   // it. Bounded to a handful of rounds so a confused tool-call cycle can't
   // spin forever; in practice a fix is 1-2 tool calls before Coach replies
   // in plain text.
-  const workingMessages: Anthropic.MessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  const groq = groqClient();
+  const workingMessages: Groq.Chat.ChatCompletionMessageParam[] = [
+    { role: "system", content: system },
+    ...messages.map((m) => ({ role: m.role, content: m.content }) as Groq.Chat.ChatCompletionMessageParam),
+  ];
   let reply = "Sorry, I couldn't come up with a reply.";
 
   try {
     for (let round = 0; round < 6; round++) {
-      const response = await createWithFallback(
-        anthropic,
-        {
-          max_tokens: 1200,
-          system,
-          tools: TOOLS,
-          messages: workingMessages,
-        },
-        MODEL
-      );
+      const completion = await groq.chat.completions.create({
+        model: MODEL,
+        max_tokens: 1200,
+        tools: TOOLS,
+        messages: workingMessages,
+      });
 
-      const toolUses = response.content.filter((c): c is Anthropic.ToolUseBlock => c.type === "tool_use");
+      const msg = completion.choices[0]?.message;
+      const toolCalls = msg?.tool_calls?.filter((c) => c.type === "function") ?? [];
 
-      if (toolUses.length === 0) {
-        const textBlock = response.content.find((c) => c.type === "text");
-        reply = textBlock && textBlock.type === "text" ? textBlock.text : reply;
+      if (!msg || toolCalls.length === 0) {
+        reply = msg?.content ?? reply;
         break;
       }
 
-      workingMessages.push({ role: "assistant", content: response.content });
+      workingMessages.push({ role: "assistant", content: msg.content ?? "", tool_calls: msg.tool_calls });
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = [];
-      for (const toolUse of toolUses) {
-        const result = await executeTool(toolUse.name, toolUse.input, supabase, user.id);
-        toolResults.push({ type: "tool_result", tool_use_id: toolUse.id, content: JSON.stringify(result) });
+      for (const toolCall of toolCalls) {
+        let args: Record<string, unknown> = {};
+        try {
+          args = JSON.parse(toolCall.function.arguments || "{}");
+        } catch {
+          // leave args empty; executeTool's switch will just see missing fields
+        }
+        const result = await executeTool(toolCall.function.name, args, supabase, user.id);
+        workingMessages.push({ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) });
       }
-      workingMessages.push({ role: "user", content: toolResults });
 
       if (round === 5) {
         reply = "I made some changes but ran out of steps to summarize them — check your data and ask me to confirm anything that looks off.";

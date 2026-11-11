@@ -73,6 +73,10 @@ export interface Lift {
   weight_lb: number;
   reps: number;
   sets: number;
+  /** Reps in reserve on this entry's hardest set, if logged. Null for legacy rows and anyone who skips it. */
+  rir: number | null;
+  /** True if this entry was a warm-up, not a hypertrophy working set — excluded from weekly volume and muscle-rank scoring. */
+  is_warmup: boolean;
 }
 
 export interface LiftMuscle {
@@ -83,7 +87,7 @@ export interface LiftMuscle {
 }
 
 export type TrainingGoal = "build_muscle" | "get_stronger" | "lose_fat" | "general_fitness";
-export type SplitType = "upper_lower" | "ppl" | "bro_split";
+export type SplitType = "upper_lower" | "ppl" | "bro_split" | "fbeod";
 
 export interface TrainingPlan {
   user_id: string;

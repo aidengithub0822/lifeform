@@ -1,39 +1,31 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import type { Goal } from "@/lib/types";
-import { AI_MODEL, explainAiError, modelCandidates } from "@/lib/ai";
+import { geminiGenerateJSON, explainAiError, type GeminiPart } from "@/lib/ai";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = AI_MODEL;
-
-const SCORE_TOOL = {
-  name: "log_food_scan",
-  description: "Report the identified food, its estimated nutrition, and a 0-100 quality score with reasoning.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      food_name: { type: "string", description: "Short name, e.g. 'Grilled chicken breast with rice and broccoli'" },
-      description: { type: "string", description: "1 sentence describing what's on the plate/in the photo" },
-      estimated_servings_note: {
-        type: "string",
-        description: "Brief note on portion size assumptions, e.g. 'assumed ~8oz chicken, 1.5 cups rice'",
-      },
-      calories: { type: "number" },
-      protein_g: { type: "number" },
-      carbs_g: { type: "number" },
-      fat_g: { type: "number" },
-      score: {
-        type: "number",
-        description: "0-100 quality score for THIS user's current goal phase, 100 = ideal choice for their goal",
-      },
-      score_reason: {
-        type: "string",
-        description: "2-3 sentences explaining the score: what's good, what's not, specific to the user's goal phase",
-      },
+const SCORE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    food_name: { type: "string", description: "Short name, e.g. 'Grilled chicken breast with rice and broccoli'" },
+    description: { type: "string", description: "1 sentence describing what's on the plate/in the photo" },
+    estimated_servings_note: {
+      type: "string",
+      description: "Brief note on portion size assumptions, e.g. 'assumed ~8oz chicken, 1.5 cups rice'",
     },
-    required: ["food_name", "description", "calories", "protein_g", "carbs_g", "fat_g", "score", "score_reason"],
+    calories: { type: "number" },
+    protein_g: { type: "number" },
+    carbs_g: { type: "number" },
+    fat_g: { type: "number" },
+    score: {
+      type: "number",
+      description: "0-100 quality score for THIS user's current goal phase, 100 = ideal choice for their goal",
+    },
+    score_reason: {
+      type: "string",
+      description: "2-3 sentences explaining the score: what's good, what's not, specific to the user's goal phase",
+    },
   },
+  required: ["food_name", "description", "calories", "protein_g", "carbs_g", "fat_g", "score", "score_reason"],
 };
 
 function goalContext(goal: Goal | null): string {
@@ -50,9 +42,9 @@ function goalContext(goal: Goal | null): string {
 }
 
 export async function POST(request: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json(
-      { error: "Server is missing ANTHROPIC_API_KEY. Add it in your deployment's environment variables." },
+      { error: "Server is missing GEMINI_API_KEY. Add it in your deployment's environment variables." },
       { status: 500 }
     );
   }
@@ -69,11 +61,12 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: "Couldn't read that request. Try again." }, { status: 400 });
   }
-  const { imageBase64, mediaType, note, foodDescription } = (body ?? {}) as {
+  const { imageBase64, mediaType, note, foodDescription, hasLabel } = (body ?? {}) as {
     imageBase64?: string;
     mediaType?: string;
     note?: string;
     foodDescription?: string;
+    hasLabel?: boolean;
   };
 
   if (!imageBase64 && !foodDescription?.trim()) {
@@ -87,30 +80,21 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   // Two entry paths: a photo (vision) or a typed description (text-only).
-  // Both use the same tool/schema so the rest of the app doesn't need to care
+  // Both use the same schema so the rest of the app doesn't need to care
   // which one produced a given log.
-  const content: Anthropic.Messages.ContentBlockParam[] = imageBase64
+  const parts: GeminiPart[] = imageBase64
     ? [
+        { inlineData: { data: imageBase64, mimeType: mediaType || "image/jpeg" } },
         {
-          type: "image",
-          source: {
-            type: "base64",
-            media_type: (mediaType || "image/jpeg") as "image/jpeg" | "image/png" | "image/webp",
-            data: imageBase64,
-          },
-        },
-        {
-          type: "text",
-          text: `Identify the food in this photo and estimate its nutrition. ${goalContext(
-            goal as Goal | null
-          )}${
-            note ? ` The user added this note: "${note}".` : ""
-          } Give your best realistic estimate even with visual uncertainty — state assumptions in estimated_servings_note rather than refusing to estimate.`,
+          text: `Identify the food in this photo and estimate its nutrition. ${
+            hasLabel
+              ? "The user says a printed nutrition facts label is visible in this photo — read its exact printed values (calories, protein, carbs, fat, serving size) directly off the label instead of estimating by eye. If the label shows a serving size different from what's actually being eaten (e.g. the label is 'per 1 cup' but the photo shows 2 cups), scale the label's numbers accordingly and say so in estimated_servings_note."
+              : "No nutrition label was indicated — estimate nutrition visually from the photo as usual."
+          } ${goalContext(goal as Goal | null)}${note ? ` The user added this note: "${note}".` : ""} Give your best realistic estimate even with visual uncertainty — state assumptions in estimated_servings_note rather than refusing to estimate.`,
         },
       ]
     : [
         {
-          type: "text",
           text: `The user typed in a description of what they ate (no photo): "${foodDescription}". Estimate its nutrition. ${goalContext(
             goal as Goal | null
           )} Give your best realistic estimate from the description, assuming a typical/reasonable portion when it isn't specified — state that assumption in estimated_servings_note rather than refusing to estimate.`,
@@ -118,37 +102,15 @@ export async function POST(request: Request) {
       ];
 
   try {
-    // If the configured model has been retired, fall through the known-good
-    // list instead of failing every scan.
-    let message: Anthropic.Messages.Message | null = null;
-    let lastErr: unknown = null;
-    for (const model of modelCandidates(MODEL)) {
-      try {
-        message = await anthropic.messages.create({
-          model,
-          max_tokens: 1024,
-          tools: [SCORE_TOOL],
-          tool_choice: { type: "tool", name: "log_food_scan" },
-          messages: [{ role: "user", content }],
-        });
-        break;
-      } catch (err) {
-        lastErr = err;
-        if (err instanceof Anthropic.APIError && err.status === 404) continue;
-        throw err;
-      }
-    }
-    if (!message) throw lastErr;
-
-    const toolUse = message.content.find((c) => c.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") {
-      return NextResponse.json({ error: "The AI didn't return a result. Try again." }, { status: 502 });
-    }
+    const input = await geminiGenerateJSON<Record<string, unknown>>({
+      parts,
+      schema: SCORE_SCHEMA,
+      maxOutputTokens: 1024,
+    });
 
     // The database enforces score 0-100 and non-null numbers, so a model that
     // returns 105 or a missing field would otherwise fail the save later with
     // a cryptic constraint error. Normalize here instead.
-    const input = toolUse.input as Record<string, unknown>;
     const num = (v: unknown, min: number, max: number) => {
       const n = Number(v);
       return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : 0;

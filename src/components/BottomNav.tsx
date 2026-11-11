@@ -191,11 +191,13 @@ export default function BottomNav() {
               }`}
             >
               {isCoach ? (
-                <span className="lf-ai-aura flex h-[21px] w-[21px] items-center justify-center rounded-full">
+                <span
+                  className={`lf-ai-aura lf-nav3d h-[29px] w-[29px]${active ? " lf-nav3d-active" : ""}`}
+                >
                   <Icon />
                 </span>
               ) : tab.href === "/dev" ? (
-                <span className="relative flex">
+                <span className={`lf-nav3d relative h-[29px] w-[29px]${active ? " lf-nav3d-active" : ""}`}>
                   <Icon />
                   {isAdmin && newCount > 0 && (
                     <span className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
@@ -204,7 +206,9 @@ export default function BottomNav() {
                   )}
                 </span>
               ) : (
-                <Icon />
+                <span className={`lf-nav3d h-[29px] w-[29px]${active ? " lf-nav3d-active" : ""}`}>
+                  <Icon />
+                </span>
               )}
               {tab.label}
             </Link>

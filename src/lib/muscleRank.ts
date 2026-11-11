@@ -73,6 +73,8 @@ export interface LiftForRank {
   reps: number;
   sets: number;
   logged_at: string;
+  /** Warm-up sets never count toward rank — see is_warmup on the lifts table. Optional so existing callers that haven't fetched the column still type-check. */
+  is_warmup?: boolean;
 }
 
 export interface MuscleRankResult {
@@ -105,7 +107,9 @@ export function computeMuscleRank(
   bodyweightLb: number | null
 ): MuscleRankResult {
   const catalogByName = new Map(ALL_EXERCISES.map((e) => [e.name, e]));
-  const relevant = lifts.filter((l) => catalogByName.get(l.lift_name)?.muscles.includes(muscle));
+  // Warm-ups are explicitly NOT hypertrophy working sets — they must never
+  // count toward a muscle's score or qualifying-day total.
+  const relevant = lifts.filter((l) => !l.is_warmup && catalogByName.get(l.lift_name)?.muscles.includes(muscle));
 
   if (relevant.length === 0) {
     return {

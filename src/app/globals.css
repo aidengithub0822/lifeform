@@ -183,3 +183,208 @@ body {
     animation: none;
   }
 }
+
+/* Scan-line sweep behind the "analyzing your photo" overlay
+   (src/app/scan/page.tsx's ScanningOverlay) — a slow top-to-bottom pass to
+   read as active scanning, not a stuck spinner. */
+@keyframes lf-scan-sweep {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(400%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[lf-scan-sweep_2\.2s_ease-in-out_infinite\] {
+    animation: none;
+  }
+}
+
+/* === Decorative page background (src/components/GeometricBackground.tsx) ===
+   Deep black canvas with large asymmetrical dark panels and a soft glowing
+   edge, fixed behind the whole app. z-index -1 so it paints after the root
+   black background but before every normal-flow page element (cards, nav,
+   text all stay in front automatically). Being `position: fixed` means it
+   lives on its own compositor layer and is NOT repainted on scroll — only
+   the page content above it moves, so this can't cause scroll stutter. */
+.lf-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: #000;
+  pointer-events: none;
+}
+
+.lf-bg-shape {
+  position: absolute;
+  background: linear-gradient(135deg, #040405 0%, #0b0b0e 55%, #050506 100%);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .lf-bg-float {
+    animation: lf-bg-drift var(--lf-bg-dur, 55s) ease-in-out infinite alternate;
+  }
+}
+
+@keyframes lf-bg-drift {
+  from {
+    translate: 0 0;
+  }
+  to {
+    translate: var(--lf-bg-dx, 10px) var(--lf-bg-dy, 10px);
+  }
+}
+
+/* === 3D depth system for interactive controls ===
+   Applied globally to real <button> elements that already carry the app's
+   existing emerald (primary action) or zinc (secondary action) background
+   utilities — every button across the app gets consistent raised/glass
+   depth without touching each screen's markup. Cards and other non-button
+   surfaces are untouched on purpose. Primary (emerald) buttons get the
+   strongest depth + a soft green glow; secondary (zinc) buttons get a more
+   subtle version. Press state physically depresses the control (translateY
+   + deeper inner shadow); release springs it back. Transforms/box-shadows
+   only, no layout-affecting properties, so this never triggers a reflow —
+   tapping a button can't cause scroll/layout jank elsewhere on the page. */
+button.bg-emerald-400,
+button.bg-emerald-500,
+button.bg-emerald-600,
+button.bg-emerald-700,
+button.bg-zinc-700,
+button.bg-zinc-800,
+button.bg-zinc-900 {
+  position: relative;
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.16) 0%, rgba(255, 255, 255, 0) 45%, rgba(0, 0, 0, 0.1) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-top-color: rgba(255, 255, 255, 0.24);
+  border-bottom-color: rgba(0, 0, 0, 0.55);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.1) inset,
+    0 -3px 5px rgba(0, 0, 0, 0.3) inset,
+    0 3px 8px rgba(0, 0, 0, 0.4),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    filter 150ms ease;
+}
+
+button.bg-emerald-400:not(:disabled),
+button.bg-emerald-500:not(:disabled),
+button.bg-emerald-600:not(:disabled),
+button.bg-emerald-700:not(:disabled) {
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.4),
+    0 0 14px 1px rgba(16, 185, 129, 0.25),
+    0 1px 0 rgba(255, 255, 255, 0.16) inset,
+    0 -3px 5px rgba(0, 0, 0, 0.28) inset,
+    0 4px 10px rgba(0, 0, 0, 0.4);
+}
+
+@media (hover: hover) {
+  button.bg-emerald-400:hover:not(:disabled):not(:active),
+  button.bg-emerald-500:hover:not(:disabled):not(:active),
+  button.bg-emerald-600:hover:not(:disabled):not(:active),
+  button.bg-emerald-700:hover:not(:disabled):not(:active) {
+    filter: brightness(1.08);
+    box-shadow:
+      0 0 0 1px rgba(16, 185, 129, 0.5),
+      0 0 20px 2px rgba(16, 185, 129, 0.32),
+      0 1px 0 rgba(255, 255, 255, 0.18) inset,
+      0 -3px 5px rgba(0, 0, 0, 0.28) inset,
+      0 5px 12px rgba(0, 0, 0, 0.4);
+  }
+  button.bg-zinc-700:hover:not(:disabled):not(:active),
+  button.bg-zinc-800:hover:not(:disabled):not(:active),
+  button.bg-zinc-900:hover:not(:disabled):not(:active) {
+    filter: brightness(1.06);
+  }
+}
+
+button.bg-emerald-400:active:not(:disabled),
+button.bg-emerald-500:active:not(:disabled),
+button.bg-emerald-600:active:not(:disabled),
+button.bg-emerald-700:active:not(:disabled) {
+  transform: translateY(1.5px);
+  filter: brightness(0.96);
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.35),
+    0 0 8px 1px rgba(16, 185, 129, 0.2),
+    0 2px 3px rgba(0, 0, 0, 0.5) inset,
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+button.bg-zinc-700:active:not(:disabled),
+button.bg-zinc-800:active:not(:disabled),
+button.bg-zinc-900:active:not(:disabled) {
+  transform: translateY(1.5px);
+  filter: brightness(0.95);
+  box-shadow:
+    0 2px 3px rgba(0, 0, 0, 0.5) inset,
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+/* Subtle raised pill behind bottom-nav icons (src/components/BottomNav.tsx)
+   — same depth language, lower intensity since this is chrome, not a CTA. */
+.lf-nav3d {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  transition:
+    transform 150ms ease,
+    box-shadow 150ms ease,
+    background 150ms ease;
+}
+
+.lf-nav3d-active {
+  background: linear-gradient(180deg, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0.04));
+  box-shadow:
+    0 0 0 1px rgba(16, 185, 129, 0.3),
+    0 0 10px 1px rgba(16, 185, 129, 0.2),
+    0 1px 0 rgba(255, 255, 255, 0.1) inset;
+}
+
+a:active .lf-nav3d {
+  transform: translateY(1px) scale(0.96);
+}
+
+/* Touch responsiveness polish — no visual change, just removes a couple of
+   default mobile-browser behaviors that make tapping feel laggy: the gray
+   flash on tap, and the ~300ms delay browsers used to add waiting to see if
+   a tap becomes a double-tap-to-zoom (manipulation disables that zoom
+   gesture here since the app is already locked to initialScale 1). Doesn't
+   touch vertical scroll momentum, which stays native. */
+html,
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  touch-action: manipulation;
+  overscroll-behavior-y: contain;
+}
+
+/* Entrance animation for the "This week" trends card
+   (src/components/WeeklyTrends.tsx) — a quick rise + fade-in on mount so
+   the charts feel like they're drawing in along with Recharts' own
+   line/bar animation, instead of just popping onto the screen. */
+@keyframes lf-chart-rise {
+  from {
+    opacity: 0;
+    translate: 0 10px;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+  }
+}
+.lf-chart-rise {
+  animation: lf-chart-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .lf-chart-rise {
+    animation: none;
+  }
+}

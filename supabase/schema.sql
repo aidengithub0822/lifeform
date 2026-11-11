@@ -85,9 +85,19 @@ create table if not exists public.lifts (
   lift_name text not null,
   weight_lb numeric not null,
   reps int not null,
-  sets int not null default 1
+  sets int not null default 1,
+  -- Reps in reserve on this entry's hardest set, if the user logged one.
+  -- Feeds the double-progression logic in hypertrophyEngine.ts.
+  rir smallint,
+  -- True if this entry was a warm-up, not a hypertrophy working set.
+  -- Excluded from weekly-volume math and muscle-rank scoring entirely.
+  is_warmup boolean not null default false
 );
 create index if not exists lifts_user_time_idx on public.lifts (user_id, logged_at desc);
+
+-- Migrations for installations created before rir/is_warmup existed.
+alter table public.lifts add column if not exists rir smallint;
+alter table public.lifts add column if not exists is_warmup boolean not null default false;
 
 -- Tags a logged lift to the muscle groups it trained (many-to-many: a row
 -- per muscle a given lift worked, e.g. bench press -> chest + shoulders +
@@ -110,13 +120,20 @@ create index if not exists lift_muscles_user_muscle_idx on public.lift_muscles (
 create table if not exists public.training_plans (
   user_id uuid primary key references auth.users(id) on delete cascade,
   training_goal text not null check (training_goal in ('build_muscle', 'get_stronger', 'lose_fat', 'general_fitness')),
-  split_type text not null check (split_type in ('upper_lower', 'ppl', 'bro_split')),
+  -- 'fbeod' = Full Body Every Other Day, a high-frequency/low-per-session-
+  -- volume split added alongside the hypertrophy-engine rebuild.
+  split_type text not null check (split_type in ('upper_lower', 'ppl', 'bro_split', 'fbeod')),
   ideal_weight_lb numeric,
   sex text,
   day_index int not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+-- Migration for installations created before 'fbeod' was a valid split_type.
+alter table public.training_plans drop constraint if exists training_plans_split_type_check;
+alter table public.training_plans add constraint training_plans_split_type_check
+  check (split_type in ('upper_lower', 'ppl', 'bro_split', 'fbeod'));
 
 create table if not exists public.progress_photos (
   id uuid primary key default gen_random_uuid(),

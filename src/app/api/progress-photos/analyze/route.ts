@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { analyzeProgressPhoto } from "@/lib/progressPhotoAnalysis";
-import { AI_MODEL } from "@/lib/ai";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = AI_MODEL;
 
 // POST /api/progress-photos/analyze { photoId } — runs a one-time AI vision
 // pass over a progress photo (see src/lib/progressPhotoAnalysis.ts for the
@@ -16,9 +11,9 @@ const MODEL = AI_MODEL;
 // instead of re-analyzing the image on every request. Called right after
 // upload, and by the Progress page's backfill loop for older photos.
 export async function POST(request: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return NextResponse.json(
-      { error: "Server is missing ANTHROPIC_API_KEY. Add it in your deployment's environment variables." },
+      { error: "Server is missing GEMINI_API_KEY. Add it in your deployment's environment variables." },
       { status: 500 }
     );
   }
@@ -34,7 +29,7 @@ export async function POST(request: Request) {
   if (!photoId) return NextResponse.json({ error: "No photoId provided" }, { status: 400 });
 
   try {
-    const result = await analyzeProgressPhoto(supabase, anthropic, MODEL, user.id, photoId);
+    const result = await analyzeProgressPhoto(supabase, user.id, photoId);
     return NextResponse.json(result);
   } catch (err) {
     console.error(err);

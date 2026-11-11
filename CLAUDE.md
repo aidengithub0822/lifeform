@@ -22,11 +22,19 @@ treat this file as that doc.
   `do $$ ... $$` loop near the bottom of the file — add new user-owned tables
   to that array rather than writing a one-off policy. `feedback` is the one
   exception: readable by any signed-in user, insertable only as yourself.
-- **AI**: Anthropic API (`ANTHROPIC_API_KEY`, same key used everywhere in the
-  app — there's no per-feature key or user-facing Anthropic sign-in).
-  Structured-output routes force `tool_choice: { type: "tool", name: ... }`
-  with a JSON schema; the coach chat route uses a plain `system` prompt
-  instead since it's conversational, not structured.
+- **AI**: split by capability across two free-tier providers (see
+  `src/lib/ai.ts`) — no paid Anthropic key anymore. **Gemini**
+  (`GEMINI_API_KEY`, `@google/genai`) handles anything needing vision: food
+  photo scans (`/api/scan-food`), physique/progress-photo analysis
+  (`src/lib/progressPhotoAnalysis.ts`), and image moderation. **Groq**
+  (`GROQ_API_KEY`, `groq-sdk`, OpenAI-compatible) handles everything
+  text-only: the Coach chat/tool-use loop, `recommend-places`,
+  `recommend-fastfood`, `recommend-foods`, `estimate-recipe`, and text
+  moderation. Structured-output routes force a single tool/function call
+  with a JSON schema (`geminiGenerateJSON`/`groqGenerateJSON` in
+  `src/lib/ai.ts`); Coach's route runs its own multi-round agentic loop
+  since it needs to inspect/execute tool calls between rounds. Both
+  providers' free tiers reset daily and don't expire — no renewal to manage.
 - **Hosting**: Vercel, project `lifeform.appv2` under account `lifeform1`,
   deployed at `https://lifeformappv2.vercel.app`. Auto-deploys on push to
   `main`. Framework Preset must be "Next.js" (it silently defaulted to
@@ -57,9 +65,9 @@ kept in sync file-by-file:
 3. Only after both copies verify identical: run `npm run lint` and
    `npm run build` in the sandbox copy with a placeholder `.env.local`
    (`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
-   `ANTHROPIC_API_KEY` all set to dummy values — the build doesn't call out
-   to them, just needs them defined), then delete `.env.local` and `.next`
-   afterward.
+   `GEMINI_API_KEY`, `GROQ_API_KEY` all set to dummy values — the build
+   doesn't call out to them, just needs them defined), then delete
+   `.env.local` and `.next` afterward.
 4. Commit the same change with the same message on both copies (so history
    matches even though commit hashes will differ due to timestamps).
 5. Push from whichever copy has git configured with real credentials — for
@@ -130,9 +138,8 @@ leftover conventions in this file make sense.
   choice, to avoid needing a Google Places key.
 - **`/coach`** — the app's most important feature, deliberately the CENTER
   bottom-nav tab (see `BottomNav.tsx`). A chat UI backed by `/api/coach`,
-  using the same `ANTHROPIC_API_KEY` as everything else (no separate
-  Anthropic sign-in — originally requested, then explicitly descoped by the
-  user in favor of reusing the app's key). The system prompt hard-restricts
+  running on Groq (`GROQ_API_KEY`) via the agentic loop in
+  `src/lib/ai.ts`/`src/app/api/coach/route.ts`. The system prompt hard-restricts
   it to nutrition/fitness/app topics and declines anything else, and it's
   fed the user's actual goal, logged weight history (with row ids), recent
   food logs (with row ids), streak/XP state, training plan, lift history,
@@ -298,9 +305,10 @@ dev` for real (not just to build):
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `SUPABASE_SERVICE_ROLE_KEY` (used only by `src/lib/supabase/admin.ts` for
   the widget endpoint)
-- `ANTHROPIC_API_KEY`
-- `ANTHROPIC_MODEL` (optional — falls back to `claude-sonnet-4-6` if unset;
-  see `src/lib/ai.ts`, which also retries `claude-sonnet-5` if the model 404s)
+- `GEMINI_API_KEY` (vision: food/physique photo scans, image moderation)
+- `GROQ_API_KEY` (text: Coach chat, recommend-*/estimate-recipe routes, text moderation)
+- `GEMINI_MODEL` / `GROQ_MODEL` (optional overrides — default to
+  `gemini-3.8-flash` / `llama-3.3-70b-versatile`; see `src/lib/ai.ts`)
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — Web Push (see
   "Push notifications" below). Generate a pair with
   `npx web-push generate-vapid-keys`.

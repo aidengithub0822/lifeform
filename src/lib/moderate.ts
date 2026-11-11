@@ -1,8 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
-import { AI_MODEL } from "@/lib/ai";
-
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const MODEL = AI_MODEL;
+import { groqGenerateJSON, geminiGenerateJSON } from "@/lib/ai";
 
 export interface ModerationResult {
   allowed: boolean;
@@ -14,20 +10,16 @@ export interface ModerateOptions {
   verified?: boolean;
 }
 
-const MODERATION_TOOL = {
-  name: "moderate_post",
-  description: "Decide whether a community post or reply is allowed.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      allowed: { type: "boolean", description: "true if the text should be published as-is" },
-      reason: {
-        type: "string",
-        description: "If not allowed, a short (1 sentence) explanation shown to the poster so they can rephrase.",
-      },
+const MODERATION_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    allowed: { type: "boolean", description: "true if the text should be published as-is" },
+    reason: {
+      type: "string",
+      description: "If not allowed, a short (1 sentence) explanation shown to the poster so they can rephrase.",
     },
-    required: ["allowed", "reason"],
   },
+  required: ["allowed", "reason"],
 };
 
 // Anything that looks like a link: a scheme, www., or a bare domain on a
@@ -51,6 +43,8 @@ export function containsLink(text: string): boolean {
  * real safety problems are blocked; almost everything else (emojis, slang,
  * banter, dark jokes like "I'm gonna kill you", off-topic chat) is allowed.
  * Swearing is only for verified accounts.
+ *
+ * Runs on Groq (fast, text-only — no vision needed for text moderation).
  */
 export async function moderate(text: string, opts: ModerateOptions = {}): Promise<ModerationResult> {
   const verified = opts.verified === true;
@@ -63,21 +57,18 @@ export async function moderate(text: string, opts: ModerateOptions = {}): Promis
   // 2) No letters at all (emojis, numbers, punctuation) — nothing to judge.
   if (!/\p{L}/u.test(text)) return { allowed: true, reason: "" };
 
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     // Fail open only if the key truly isn't configured — better than a
     // totally broken community feed. In practice this key is always set.
     return { allowed: true, reason: "" };
   }
   try {
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 300,
-      tools: [MODERATION_TOOL],
-      tool_choice: { type: "tool", name: "moderate_post" },
-      messages: [
-        {
-          role: "user",
-          content: `You are a very light-touch moderator for the public community thread of a fitness app. Your default answer is ALLOW. Only block text that clearly breaks one of the rules below.
+    const input = await groqGenerateJSON<{ allowed: boolean; reason: string }>({
+      toolName: "moderate_post",
+      toolDescription: "Decide whether a community post or reply is allowed.",
+      schema: MODERATION_SCHEMA,
+      maxTokens: 300,
+      prompt: `You are a very light-touch moderator for the public community thread of a fitness app. Your default answer is ALLOW. Only block text that clearly breaks one of the rules below.
 
 BLOCK:
 1. Slurs — any slur about race, ethnicity, nationality, religion, gender, sexuality, disability, etc., including masked or spaced-out versions (leetspeak, symbols, extra letters).
@@ -86,10 +77,10 @@ BLOCK:
 4. Real safety problems — a genuine, credible threat against a real person, sharing someone's private info (address, phone, etc.), sexual content involving minors, sexual content in general, encouraging self-harm or suicide, promoting eating disorders, or instructions for serious crimes or drug abuse.
 5. Links or link-like text, including disguised ones ("dot com", "h t t p"), and ads/spam/promo of other sites, accounts or products.
 6. Profanity — ${
-            verified
-              ? "NOT a problem here: this poster is verified, so ordinary swear words are fine in moderation as long as they are NOT aimed at a person or group and the post isn't just a wall of cursing."
-              : "this poster is NOT verified, so block posts that contain swear words or profanity (fuck, shit, bitch, asshole, dick, etc. — including masked versions like f*ck or sh1t). Mild words such as damn, hell, crap, suck, screw, wtf, omg, butt or 'freaking' are fine. If you block for profanity, say swearing is for verified accounts only."
-          }
+        verified
+          ? "NOT a problem here: this poster is verified, so ordinary swear words are fine in moderation as long as they are NOT aimed at a person or group and the post isn't just a wall of cursing."
+          : "this poster is NOT verified, so block posts that contain swear words or profanity (fuck, shit, bitch, asshole, dick, etc. — including masked versions like f*ck or sh1t). Mild words such as damn, hell, crap, suck, screw, wtf, omg, butt or 'freaking' are fine. If you block for profanity, say swearing is for verified accounts only."
+      }
 
 ALWAYS ALLOW (never block these, even if you're unsure):
 - Emojis, emoticons, reactions, one-word or very short replies, slang, memes, sarcasm, and off-topic small talk.
@@ -103,13 +94,8 @@ Text to review:
 """
 ${text}
 """`,
-        },
-      ],
     });
 
-    const toolUse = response.content.find((c) => c.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return { allowed: true, reason: "" };
-    const input = toolUse.input as { allowed: boolean; reason: string };
     return { allowed: !!input.allowed, reason: input.reason || "" };
   } catch (err) {
     console.error("Community moderation failed:", err);
@@ -117,20 +103,16 @@ ${text}
   }
 }
 
-const IMAGE_TOOL = {
-  name: "moderate_image",
-  description: "Decide whether a photo is allowed in the community.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      allowed: { type: "boolean", description: "true if the photo may be published" },
-      reason: {
-        type: "string",
-        description: "If not allowed, one short sentence explaining why, shown to the person who posted it.",
-      },
+const IMAGE_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    allowed: { type: "boolean", description: "true if the photo may be published" },
+    reason: {
+      type: "string",
+      description: "If not allowed, one short sentence explaining why, shown to the person who posted it.",
     },
-    required: ["allowed", "reason"],
   },
+  required: ["allowed", "reason"],
 };
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/gif" | "image/webp";
@@ -142,6 +124,8 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
  * CLOSED (if the check itself can't run, the photo is held back); verified
  * accounts fail open. `imageUrl` must already be validated as one of this
  * app's own storage URLs by the caller.
+ *
+ * Runs on Gemini (vision).
  */
 export async function moderateImage(imageUrl: string, opts: ModerateOptions = {}): Promise<ModerationResult> {
   const verified = opts.verified === true;
@@ -149,7 +133,7 @@ export async function moderateImage(imageUrl: string, opts: ModerateOptions = {}
     ? { allowed: true, reason: "" }
     : { allowed: false, reason: "We couldn't check that photo right now — please try again in a minute." };
 
-  if (!process.env.ANTHROPIC_API_KEY) return unavailable;
+  if (!process.env.GEMINI_API_KEY) return unavailable;
 
   try {
     const res = await fetch(imageUrl, { cache: "no-store" });
@@ -159,28 +143,19 @@ export async function moderateImage(imageUrl: string, opts: ModerateOptions = {}
       return { allowed: false, reason: "That photo is too large to post — try a smaller one." };
     }
     const headerType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-    const mediaType: ImageMediaType = (["image/jpeg", "image/png", "image/gif", "image/webp"] as const).includes(
+    const mimeType: ImageMediaType = (["image/jpeg", "image/png", "image/gif", "image/webp"] as const).includes(
       headerType as ImageMediaType
     )
       ? (headerType as ImageMediaType)
       : "image/jpeg";
 
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: 300,
-      tools: [IMAGE_TOOL],
-      tool_choice: { type: "tool", name: "moderate_image" },
-      messages: [
+    const input = await geminiGenerateJSON<{ allowed: boolean; reason: string }>({
+      schema: IMAGE_SCHEMA,
+      maxOutputTokens: 300,
+      parts: [
+        { inlineData: { data: buf.toString("base64"), mimeType } },
         {
-          role: "user",
-          content: [
-            {
-              type: "image",
-              source: { type: "base64", media_type: mediaType, data: buf.toString("base64") },
-            },
-            {
-              type: "text",
-              text: `You are the photo moderator for a fitness app's public community feed and profiles. Decide whether this photo may be shown to other users.
+          text: `You are the photo moderator for a fitness app's public community feed and profiles. Decide whether this photo may be shown to other users.
 
 BLOCK photos that contain:
 - Nudity or sexual content (exposed genitals, breasts/nipples, sexual acts or poses, fetish content).
@@ -194,15 +169,10 @@ BLOCK photos that contain:
 ALLOW everything normal: selfies, gym and workout photos, shirtless or swimwear progress and physique photos that aren't sexual, food, pets, scenery, memes, screenshots, friends, and harmless jokes. When it's borderline but not clearly one of the blocked categories, allow it.
 
 If you block, give one short, polite sentence.`,
-            },
-          ],
         },
       ],
     });
 
-    const toolUse = response.content.find((c) => c.type === "tool_use");
-    if (!toolUse || toolUse.type !== "tool_use") return unavailable;
-    const input = toolUse.input as { allowed: boolean; reason: string };
     return {
       allowed: !!input.allowed,
       reason: input.reason || (input.allowed ? "" : "That photo doesn't meet the community guidelines."),

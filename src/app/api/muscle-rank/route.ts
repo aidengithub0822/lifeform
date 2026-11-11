@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { MUSCLE_GROUPS } from "@/lib/trainingSplits";
 import { computeAllMuscleRanks, type LiftForRank } from "@/lib/muscleRank";
+import { weeklyMuscleVolume } from "@/lib/hypertrophyEngine";
 import type { TrainingPlan, Measurement } from "@/lib/types";
 
 // GET: per-muscle rank for every tracked muscle group, computed from the
@@ -19,7 +20,7 @@ export async function GET() {
   const [{ data: lifts }, { data: plan }, { data: measurements }] = await Promise.all([
     supabase
       .from("lifts")
-      .select("lift_name, weight_lb, reps, sets, logged_at")
+      .select("lift_name, weight_lb, reps, sets, logged_at, is_warmup")
       .eq("user_id", user.id)
       .order("logged_at", { ascending: true })
       .limit(3000)
@@ -40,5 +41,15 @@ export async function GET() {
 
   const ranks = computeAllMuscleRanks(MUSCLE_GROUPS, lifts ?? [], bodyweightLb);
 
-  return NextResponse.json({ ranks, bodyweightLb, bodyweightSource: trainingPlan?.ideal_weight_lb ? "quiz" : measurements?.[0] ? "progress" : "default" });
+  // The split's weekly per-muscle volume (direct + fractional secondary
+  // credit) — lets the Fitness page show "this split trains it for ~X
+  // sets/week" instead of only a rank badge. Null when no plan exists yet.
+  const weeklyVolume = trainingPlan ? weeklyMuscleVolume(trainingPlan.split_type) : null;
+
+  return NextResponse.json({
+    ranks,
+    bodyweightLb,
+    bodyweightSource: trainingPlan?.ideal_weight_lb ? "quiz" : measurements?.[0] ? "progress" : "default",
+    weeklyVolume,
+  });
 }

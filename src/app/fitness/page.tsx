@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import { CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
 import { LIFT_SUBSECTIONS, resolveSubsection } from "@/lib/liftBrowser";
 import {
@@ -11,6 +12,7 @@ import {
   type SplitExercise,
   type MuscleGroup,
 } from "@/lib/trainingSplits";
+import { explainPrescription, type MuscleWeeklyVolume } from "@/lib/hypertrophyEngine";
 import type { TrainingPlan, Lift } from "@/lib/types";
 import XpSparkToast from "@/components/XpSparkToast";
 import MuscleMapOverlay from "@/components/MuscleMapOverlay";
@@ -61,6 +63,8 @@ function LogSetForm({
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
   const [sets, setSets] = useState(String(exercise.sets));
+  const [rir, setRir] = useState("");
+  const [isWarmup, setIsWarmup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -70,16 +74,25 @@ function LogSetForm({
     const weightLb = Number(weight);
     const repsN = Number(reps);
     const setsN = Number(sets);
+    const rirN = rir.trim() === "" ? null : Number(rir);
     if (!Number.isFinite(weightLb) || weightLb < 0) return setError("Enter a valid weight");
     if (!Number.isInteger(repsN) || repsN <= 0) return setError("Enter a valid rep count");
     if (!Number.isInteger(setsN) || setsN <= 0) return setError("Enter a valid set count");
+    if (rirN != null && (!Number.isFinite(rirN) || rirN < 0 || rirN > 10)) return setError("RIR should be between 0 and 10");
 
     setSaving(true);
     try {
       const res = await fetch("/api/lifts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ lift_name: exercise.name, weight_lb: weightLb, reps: repsN, sets: setsN }),
+        body: JSON.stringify({
+          lift_name: exercise.name,
+          weight_lb: weightLb,
+          reps: repsN,
+          sets: setsN,
+          rir: rirN,
+          is_warmup: isWarmup,
+        }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -97,7 +110,9 @@ function LogSetForm({
     return (
       <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs font-medium text-emerald-400">
         <span>
-          Logged {weight} lb × {reps} for {sets} {Number(sets) === 1 ? "set" : "sets"} ✓
+          Logged {weight} lb × {reps} for {sets} {Number(sets) === 1 ? "set" : "sets"}
+          {rir.trim() !== "" ? ` @ ${rir} RIR` : ""}
+          {isWarmup ? " (warm-up)" : ""} ✓
         </span>
         <button
           onClick={() => setSaved(false)}
@@ -111,7 +126,7 @@ function LogSetForm({
 
   return (
     <div className="mt-2 rounded-xl border border-[#1f1f23] bg-[#0d0d0f] p-3">
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-4 gap-2">
         <div>
           <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Weight (lb)</label>
           <input
@@ -144,7 +159,22 @@ function LogSetForm({
             className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
           />
         </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">RIR</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={rir}
+            onChange={(e) => setRir(e.target.value)}
+            placeholder={`${exercise.failureRir[0]}`}
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
       </div>
+      <label className="mt-2.5 flex items-center gap-2 text-xs text-[#a1a1aa]">
+        <input type="checkbox" checked={isWarmup} onChange={(e) => setIsWarmup(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+        This was a warm-up set (won&apos;t count toward weekly volume or your muscle rank)
+      </label>
       {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
       <button
         onClick={submit}
@@ -176,6 +206,8 @@ export default function FitnessPage() {
   const [history, setHistory] = useState<Map<string, number>>(new Map());
   const [orderHistory, setOrderHistory] = useState<Map<string, number>>(new Map());
   const [muscleRanks, setMuscleRanks] = useState<MuscleRankApiResult[] | null>(null);
+  const [weeklyVolume, setWeeklyVolume] = useState<Record<MuscleGroup, MuscleWeeklyVolume> | null>(null);
+  const [infoExercise, setInfoExercise] = useState<string | null>(null);
   const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | null>(null);
   const [rankSummary, setRankSummary] = useState<RankSummary | null>(null);
   const [showStats, setShowStats] = useState(false);
@@ -196,6 +228,23 @@ export default function FitnessPage() {
     refreshMuscleRanks();
     refreshRankSummary();
     loadHistory();
+
+    // Default the body-view toggle to whatever the user told onboarding
+    // (Set your targets -> Sex) rather than always starting on "male" — the
+    // toggle still lets them switch manually, this only sets the default.
+    (async () => {
+      const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from("goals")
+        .select("sex")
+        .eq("user_id", user.id)
+        .maybeSingle<{ sex: string | null }>();
+      if (data?.sex === "female") setSex("female");
+    })();
   }, []);
 
   async function loadHistory() {
@@ -221,6 +270,7 @@ export default function FitnessPage() {
       const body = await res.json();
       setMuscleRanks(body.ranks);
       if (typeof body.bodyweightLb === "number") setBodyweightLb(body.bodyweightLb);
+      if (body.weeklyVolume) setWeeklyVolume(body.weeklyVolume);
     }
   }
 
@@ -394,6 +444,12 @@ export default function FitnessPage() {
           ) : (
             <p className="mt-1.5 text-xs text-[#71717a]">No sets logged for this muscle yet.</p>
           )}
+          {weeklyVolume?.[selectedRank.muscle] && (
+            <p className="mt-1.5 text-[11px] text-[#71717a]">
+              This split trains it for ~{Math.round(weeklyVolume[selectedRank.muscle].total * 10) / 10} direct + secondary working sets/week
+              (~{Math.round(weeklyVolume[selectedRank.muscle].direct * 10) / 10} direct).
+            </p>
+          )}
 
           {selectedRank.nextTier ? (
             <div className="mt-3">
@@ -515,7 +571,8 @@ export default function FitnessPage() {
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
                                 <p className="mt-0.5 text-xs text-[#71717a]">
-                                  {exercise.sets} sets · {exercise.repRange} reps
+                                  {exercise.sets} working {exercise.sets === 1 ? "set" : "sets"} · {exercise.repRangeMin}-{exercise.repRangeMax} reps ·{" "}
+                                  {exercise.failureRir[0]}-{exercise.failureRir[1]} RIR
                                 </p>
                               </div>
                               {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
@@ -562,6 +619,8 @@ export default function FitnessPage() {
                 const key = `today:${exercise.name}`;
                 const isOpen = openExercise === key;
                 const isLogged = loggedNames.has(exercise.name);
+                const copy = explainPrescription(exercise, plan.split_type, exercise.muscles[0]);
+                const infoOpen = infoExercise === exercise.name;
                 return (
                   <div key={exercise.name} className="border-b border-[#1a1a1d] py-3 last:border-0">
                     <button
@@ -571,13 +630,26 @@ export default function FitnessPage() {
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
                         <p className="mt-0.5 text-xs text-[#71717a]">
-                          {exercise.sets} sets · {exercise.repRange} reps
+                          {copy.setsLabel} · {copy.repsLabel} · {copy.rirLabel}
                         </p>
                       </div>
                       {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
                       <span className="shrink-0 text-[11px] capitalize text-[#52525b]">{exercise.muscles[0]}</span>
                       <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
                     </button>
+                    <button
+                      onClick={() => setInfoExercise(infoOpen ? null : exercise.name)}
+                      className="mt-1.5 text-[11px] font-medium text-emerald-400/80"
+                    >
+                      {infoOpen ? "Hide" : "Why only this much?"} ⓘ
+                    </button>
+                    {infoOpen && (
+                      <div className="mt-1.5 rounded-lg border border-[#1f1f23] bg-[#111113] p-2.5 text-[11px] leading-relaxed text-[#a1a1aa]">
+                        <p>{copy.volumeExplanation}</p>
+                        <p className="mt-1.5">{copy.effortCue}</p>
+                        {exercise.lengthenedLoading && exercise.lengthenedNote && <p className="mt-1.5">{exercise.lengthenedNote}</p>}
+                      </div>
+                    )}
                     {isOpen && <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />}
                   </div>
                 );

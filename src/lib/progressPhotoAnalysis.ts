@@ -1,35 +1,31 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { ProgressPhoto } from "@/lib/types";
+import { geminiGenerateJSON, GEMINI_MODEL, type GeminiPart } from "@/lib/ai";
 
-const ANALYZE_TOOL = {
-  name: "log_photo_analysis",
-  description: "Report a leanness/definition assessment of the physique shown in a progress photo.",
-  input_schema: {
-    type: "object" as const,
-    properties: {
-      leanness_score: {
-        type: "number",
-        description:
-          "0-100 ordinal leanness/muscle-definition score for THIS photo alone (100 = extremely lean/defined, 0 = highest visible body fat). This is a relative, comparable-over-time signal, not a body-fat-percentage estimate.",
-      },
-      summary: {
-        type: "string",
-        description:
-          "2-3 encouraging, specific sentences describing what's visible (muscle definition, midsection, overall composition). If an earlier photo of the same angle was provided for comparison, explicitly call out what changed (or didn't) — be honest, not just flattering.",
-      },
+const ANALYSIS_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    leanness_score: {
+      type: "number",
+      description:
+        "0-100 ordinal leanness/muscle-definition score for THIS photo alone (100 = extremely lean/defined, 0 = highest visible body fat). This is a relative, comparable-over-time signal, not a body-fat-percentage estimate.",
     },
-    required: ["leanness_score", "summary"],
+    summary: {
+      type: "string",
+      description:
+        "2-3 encouraging, specific sentences describing what's visible (muscle definition, midsection, overall composition). If an earlier photo of the same angle was provided for comparison, explicitly call out what changed (or didn't) — be honest, not just flattering.",
+    },
   },
+  required: ["leanness_score", "summary"],
 };
 
-async function fetchAsBase64(url: string): Promise<{ data: string; mediaType: "image/jpeg" | "image/png" | "image/webp" }> {
+async function fetchAsBase64(url: string): Promise<{ data: string; mimeType: "image/jpeg" | "image/png" | "image/webp" }> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Couldn't fetch photo (${res.status})`);
   const buf = await res.arrayBuffer();
   const contentType = res.headers.get("content-type") || "";
-  const mediaType = contentType.includes("png") ? "image/png" : contentType.includes("webp") ? "image/webp" : "image/jpeg";
-  return { data: Buffer.from(buf).toString("base64"), mediaType };
+  const mimeType = contentType.includes("png") ? "image/png" : contentType.includes("webp") ? "image/webp" : "image/jpeg";
+  return { data: Buffer.from(buf).toString("base64"), mimeType };
 }
 
 /**
@@ -43,14 +39,17 @@ async function fetchAsBase64(url: string): Promise<{ data: string; mediaType: "i
  * Uses the caller's own RLS-scoped supabase client (not the admin client)
  * since a user re-reading/updating their own progress_photos row is
  * already allowed by the owner_all policy — no elevated access needed.
+ *
+ * Runs on Gemini (vision) rather than the old Anthropic client — the
+ * `model` param is kept for call-site compatibility but defaults to
+ * GEMINI_MODEL when not a Gemini model name.
  */
 export async function analyzeProgressPhoto(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, any, any>,
-  anthropic: Anthropic,
-  model: string,
   userId: string,
-  photoId: string
+  photoId: string,
+  model: string = GEMINI_MODEL
 ): Promise<{ ai_leanness_score: number; ai_summary: string }> {
   const { data: photo, error: photoError } = await supabase
     .from("progress_photos")
@@ -72,40 +71,34 @@ export async function analyzeProgressPhoto(
     .maybeSingle<ProgressPhoto>();
 
   const current = await fetchAsBase64(photo.photo_url);
-  const content: Anthropic.Messages.ContentBlockParam[] = [];
+  const parts: GeminiPart[] = [];
 
   if (prior) {
     const earlier = await fetchAsBase64(prior.photo_url);
-    content.push(
-      { type: "text", text: `Earlier ${photo.angle} progress photo, taken ${prior.taken_at}:` },
-      { type: "image", source: { type: "base64", media_type: earlier.mediaType, data: earlier.data } },
-      { type: "text", text: `Current ${photo.angle} progress photo, taken ${photo.taken_at}:` },
-      { type: "image", source: { type: "base64", media_type: current.mediaType, data: current.data } },
-      {
-        type: "text",
-        text: "Compare the two and score the CURRENT photo's leanness/definition, calling out what changed since the earlier one.",
-      }
+    parts.push(
+      { text: `Earlier ${photo.angle} progress photo, taken ${prior.taken_at}:` },
+      { inlineData: { data: earlier.data, mimeType: earlier.mimeType } },
+      { text: `Current ${photo.angle} progress photo, taken ${photo.taken_at}:` },
+      { inlineData: { data: current.data, mimeType: current.mimeType } },
+      { text: "Compare the two and score the CURRENT photo's leanness/definition, calling out what changed since the earlier one." }
     );
   } else {
-    content.push(
-      { type: "text", text: `${photo.angle} progress photo, taken ${photo.taken_at}:` },
-      { type: "image", source: { type: "base64", media_type: current.mediaType, data: current.data } },
-      { type: "text", text: "This is the user's first analyzed photo from this angle — score its leanness/definition." }
+    parts.push(
+      { text: `${photo.angle} progress photo, taken ${photo.taken_at}:` },
+      { inlineData: { data: current.data, mimeType: current.mimeType } },
+      { text: "This is the user's first analyzed photo from this angle — score its leanness/definition." }
     );
   }
 
-  const message = await anthropic.messages.create({
+  const result = await geminiGenerateJSON<{ leanness_score: number; summary: string }>({
+    parts,
+    schema: ANALYSIS_SCHEMA,
     model,
-    max_tokens: 600,
-    tools: [ANALYZE_TOOL],
-    tool_choice: { type: "tool", name: "log_photo_analysis" },
-    messages: [{ role: "user", content }],
+    maxOutputTokens: 600,
   });
 
-  const toolUse = message.content.find((c) => c.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") throw new Error("Model did not return structured data");
-  const { leanness_score, summary } = toolUse.input as { leanness_score: number; summary: string };
-  const clamped = Math.max(0, Math.min(100, Math.round(leanness_score)));
+  const clamped = Math.max(0, Math.min(100, Math.round(Number(result.leanness_score))));
+  const summary = String(result.summary ?? "");
 
   const { error: updateError } = await supabase
     .from("progress_photos")

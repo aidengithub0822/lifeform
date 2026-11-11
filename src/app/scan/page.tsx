@@ -100,6 +100,7 @@ function ScanInner() {
   const [imageData, setImageData] = useState<{ data: string; mediaType: string } | null>(null);
   const [typedFood, setTypedFood] = useState("");
   const [note, setNote] = useState("");
+  const [hasLabel, setHasLabel] = useState<boolean | null>(null);
   const [scanning, setScanning] = useState(false);
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -171,7 +172,7 @@ function ScanInner() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(
           mode === "photo"
-            ? { imageBase64: imageData?.data, mediaType: imageData?.mediaType, note }
+            ? { imageBase64: imageData?.data, mediaType: imageData?.mediaType, note, hasLabel: hasLabel === true }
             : { foodDescription: typedFood }
         ),
       });
@@ -344,6 +345,7 @@ function ScanInner() {
     setTypedFood("");
     setResult(null);
     setNote("");
+    setHasLabel(null);
     setError(null);
     if (inputRef.current) inputRef.current.value = "";
   }
@@ -479,17 +481,46 @@ function ScanInner() {
 
       {mode === "photo" && imagePreview && (
         <div className="mt-6">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={imagePreview} alt="Food to scan" className="w-full rounded-2xl object-cover" />
+          <div className="relative">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imagePreview} alt="Food to scan" className="w-full rounded-2xl object-cover" />
+            {scanning && <ScanningOverlay />}
+          </div>
 
-          {!result && (
+          {!result && !scanning && (
             <>
+              <div className="mt-4">
+                <p className="text-xs font-medium text-zinc-400">Is there a nutrition label visible in this photo?</p>
+                <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+                  <button
+                    onClick={() => setHasLabel(false)}
+                    className={`rounded-lg py-2 text-xs font-semibold ${
+                      hasLabel === false ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-300"
+                    }`}
+                  >
+                    No, just food
+                  </button>
+                  <button
+                    onClick={() => setHasLabel(true)}
+                    className={`rounded-lg py-2 text-xs font-semibold ${
+                      hasLabel === true ? "bg-emerald-500 text-black" : "bg-zinc-900 text-zinc-300"
+                    }`}
+                  >
+                    Yes, label visible
+                  </button>
+                </div>
+                {hasLabel === true && (
+                  <p className="mt-1.5 text-[11px] text-zinc-500">
+                    We&apos;ll read the printed numbers off the label instead of estimating by eye.
+                  </p>
+                )}
+              </div>
               <input
                 type="text"
                 placeholder="Optional note (e.g. 'large plate, extra cheese')"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
-                className="mt-4 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm placeholder-zinc-500 outline-none focus:border-emerald-500"
+                className="mt-3 w-full rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-3 text-sm placeholder-zinc-500 outline-none focus:border-emerald-500"
               />
               <div className="mt-4 flex gap-3">
                 <button
@@ -500,10 +531,10 @@ function ScanInner() {
                 </button>
                 <button
                   onClick={runScan}
-                  disabled={scanning}
+                  disabled={scanning || hasLabel === null}
                   className="flex-[2] rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-60"
                 >
-                  {scanning ? "Scanning..." : "Scan"}
+                  Scan
                 </button>
               </div>
             </>
@@ -574,7 +605,7 @@ function ScanInner() {
             <ScoreBadge score={result.score} size="lg" />
             <div>
               <p className="font-semibold">{result.food_name}</p>
-              <p className="text-sm text-zinc-400">{result.calories} calories</p>
+              <p className="text-sm text-zinc-400">~{result.calories} calories (estimated)</p>
             </div>
           </div>
 
@@ -582,6 +613,9 @@ function ScanInner() {
           {result.estimated_servings_note && (
             <p className="text-xs text-zinc-500">Assumption: {result.estimated_servings_note}</p>
           )}
+          <p className="text-[11px] text-zinc-600">
+            Photo-based estimates can be off, especially for mixed dishes — adjust the log later if something looks wrong.
+          </p>
 
           <div className="grid grid-cols-3 gap-3 text-center">
             <Macro label="Protein" value={result.protein_g} />
@@ -624,8 +658,36 @@ export default function ScanPage() {
 function Macro({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-xl bg-zinc-900 py-3">
-      <p className="text-lg font-bold">{Math.round(value)}g</p>
+      <p className="text-lg font-bold">~{Math.round(value)}g</p>
       <p className="text-xs text-zinc-500">{label}</p>
+    </div>
+  );
+}
+
+// Shown over the photo while the scan is in flight. Two jobs at once: looks
+// good, and — just as important — makes it obvious the app is actively
+// working rather than frozen, since a vision API call can take a few
+// seconds. The sweeping scan-line plus cycling status text both signal
+// ongoing progress rather than a single static "loading" state.
+const SCAN_STATUS_MESSAGES = [
+  "Reading your plate\u2026",
+  "Checking portions\u2026",
+  "Estimating macros\u2026",
+  "Almost done\u2026",
+];
+
+function ScanningOverlay() {
+  const [step, setStep] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setStep((s) => (s + 1) % SCAN_STATUS_MESSAGES.length), 1500);
+    return () => clearInterval(id);
+  }, []);
+  return (
+    <div className="absolute inset-0 flex flex-col items-center justify-center overflow-hidden rounded-2xl bg-black/55 backdrop-blur-[1px]">
+      <div className="absolute inset-x-0 h-24 bg-gradient-to-b from-transparent via-emerald-400/25 to-transparent animate-[lf-scan-sweep_2.2s_ease-in-out_infinite]" />
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-emerald-400/25 border-t-emerald-400" />
+      <p className="mt-3 text-sm font-medium text-emerald-300">{SCAN_STATUS_MESSAGES[step]}</p>
+      <p className="mt-1 text-[11px] text-zinc-400">This usually takes a few seconds</p>
     </div>
   );
 }

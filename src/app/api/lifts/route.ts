@@ -61,6 +61,13 @@ export async function POST(request: Request) {
   const weightLb = Number(body?.weight_lb);
   const reps = Number(body?.reps);
   const sets = Number(body?.sets ?? 1);
+  // Both optional: rir lets the double-progression logic in
+  // hypertrophyEngine.ts judge effort, not just reps; is_warmup excludes a
+  // set from weekly-volume math and muscle-rank scoring entirely — warm-ups
+  // are not hypertrophy working sets.
+  const rirRaw = body?.rir;
+  const rir = rirRaw == null || rirRaw === "" ? null : Number(rirRaw);
+  const isWarmup = body?.is_warmup === true;
 
   const catalogEntry = ALL_EXERCISES.find((e) => e.name === liftName);
   if (!catalogEntry) {
@@ -75,6 +82,9 @@ export async function POST(request: Request) {
   if (!Number.isInteger(sets) || sets <= 0) {
     return NextResponse.json({ error: "Enter a valid set count" }, { status: 400 });
   }
+  if (rir != null && (!Number.isFinite(rir) || rir < 0 || rir > 10)) {
+    return NextResponse.json({ error: "RIR should be between 0 and 10" }, { status: 400 });
+  }
 
   const { data: lift, error: liftError } = await supabase
     .from("lifts")
@@ -86,6 +96,8 @@ export async function POST(request: Request) {
       weight_lb: weightLb,
       reps,
       sets,
+      rir,
+      is_warmup: isWarmup,
     })
     .select("*")
     .single<Lift>();

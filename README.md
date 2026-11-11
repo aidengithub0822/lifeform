@@ -7,7 +7,7 @@ It's a real Next.js app with real accounts and a real database (Supabase), so it
 ## What you're setting up
 
 1. **Supabase** — free hosted database + auth + file storage
-2. **Anthropic API key** — powers the food photo scanning/scoring
+2. **Gemini + Groq API keys** — power the food/physique photo scanning (Gemini) and the Coach chat (Groq); both have free tiers that reset daily and don't expire
 3. **Vercel** — free hosting that gives your app a real HTTPS URL
 4. Then you "Add to Home Screen" on your iPhone and it behaves like a native app
 
@@ -19,11 +19,12 @@ It's a real Next.js app with real accounts and a real database (Supabase), so it
 4. Go to **Project Settings → API**. You'll need two values from here in a minute: the **Project URL** and the **anon public** key.
 5. Go to **Authentication → Sign In / Providers → Email** and turn **off** "Confirm email" if you want to skip email verification while testing (you can turn it back on later). If you leave it on, Supabase needs a "Site URL" set under **Authentication → URL Configuration** — set it to your Vercel URL once you have it (step 3).
 
-## 2. Get an Anthropic API key
+## 2. Get a Gemini API key and a Groq API key
 
-1. Go to [console.anthropic.com](https://console.anthropic.com) and sign up.
-2. Add a small amount of credit (a few dollars covers a lot of food scans — each scan is a single short API call).
-3. Go to **API Keys → Create Key** and copy it.
+Both are free and don't expire or need renewing (Gemini's free tier resets daily; Groq's free tier has no card/spending cap, limited per-org).
+
+1. **Gemini** (handles anything with a photo — food scans, physique scans): go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey), sign in with a Google account, and click **Create API key**. Copy it.
+2. **Groq** (handles the Coach chat, text-only): go to [console.groq.com/keys](https://console.groq.com/keys), sign up, and click **Create API Key**. Copy it.
 
 ## 3. Deploy to Vercel
 
@@ -33,7 +34,8 @@ It's a real Next.js app with real accounts and a real database (Supabase), so it
    - `NEXT_PUBLIC_SUPABASE_URL` = your Supabase Project URL
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon public key
    - `SUPABASE_SERVICE_ROLE_KEY` = your Supabase service_role key (also on the API settings page — only used server-side, powers the home-screen widget below)
-   - `ANTHROPIC_API_KEY` = your Anthropic key
+   - `GEMINI_API_KEY` = your Gemini key
+   - `GROQ_API_KEY` = your Groq key
 4. Click **Deploy**. In ~1 minute you'll get a URL like `https://lifeform-yourname.vercel.app`.
 5. If you turned email confirmation on in step 1, go back to Supabase → **Authentication → URL Configuration** and set Site URL + a redirect URL of `https://your-vercel-url.vercel.app/auth/callback`.
 
