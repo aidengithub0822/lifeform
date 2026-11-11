@@ -16,7 +16,7 @@ import PinnedBadge from "@/components/PinnedBadge";
 import PostVideo from "@/components/PostVideo";
 import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { isLockedNow, isPinnedNow, sortForFeed } from "@/lib/pins";
-import { CameraIcon, CloseIcon, CommentIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import { CameraIcon, CloseIcon, CommentIcon, GifIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
@@ -58,6 +58,7 @@ export default function CommunityPage() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const gifInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -171,6 +172,27 @@ export default function CommunityPage() {
     if (videoInputRef.current) videoInputRef.current.value = "";
   }
 
+  // Matches the photo-moderation size cap server-side (MAX_IMAGE_BYTES in
+  // src/lib/moderate.ts) — a bigger file would just upload and then bounce
+  // back as "too large" during moderation, which is a confusing way to find
+  // out. Keeping the limits in sync means the error shows up immediately.
+  const MAX_GIF_BYTES = 5 * 1024 * 1024;
+
+  function pickGif(file: File) {
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+    if (!isGif) {
+      setError("That file isn't a GIF.");
+      return;
+    }
+    if (file.size > MAX_GIF_BYTES) {
+      setError("GIFs can be up to 5 MB — trim or use a shorter one.");
+      return;
+    }
+    setError(null);
+    clearVideo();
+    pickPhoto(file);
+  }
+
   function clearPhoto() {
     setPhotoFile(null);
     setPhotoPreview(null);
@@ -186,10 +208,15 @@ export default function CommunityPage() {
     try {
       let photoUrl: string | null = null;
       if (photoFile) {
-        const blob = await compressImageForUpload(photoFile, 1600, 0.85);
-        const path = `${myUserId}/community/${Date.now()}.jpg`;
+        // GIFs go up as-is — recompressing through canvas (like a regular
+        // photo) would flatten them to their first frame and lose the
+        // animation, so this is the one picked-file path that skips it.
+        const isGif = photoFile.type === "image/gif" || /\.gif$/i.test(photoFile.name);
+        const blob = isGif ? photoFile : await compressImageForUpload(photoFile, 1600, 0.85);
+        const ext = isGif ? "gif" : "jpg";
+        const path = `${myUserId}/community/${Date.now()}.${ext}`;
         const { error: uploadError } = await supabase.storage.from("profile-media").upload(path, blob, {
-          contentType: "image/jpeg",
+          contentType: isGif ? "image/gif" : "image/jpeg",
         });
         if (uploadError) {
           setError(uploadError.message);
@@ -396,6 +423,20 @@ export default function CommunityPage() {
                         clearVideo();
                         pickPhoto(e.target.files[0]);
                       }
+                    }}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                  <GifIcon className="h-4 w-4" />
+                  GIF
+                  <input
+                    ref={gifInputRef}
+                    type="file"
+                    accept="image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) pickGif(e.target.files[0]);
+                      if (gifInputRef.current) gifInputRef.current.value = "";
                     }}
                   />
                 </label>

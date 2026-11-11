@@ -33,7 +33,7 @@ export default function OnboardingPage() {
   // all key off it), so it runs FIRST, ahead of the goal-setting steps
   // below. checkingUsername starts true so we don't flash the goal flow
   // for a split second before we know whether a username is already set.
-  const [step, setStep] = useState<"username" | "intro" | "targets">("username");
+  const [step, setStep] = useState<"username" | "intro" | "gender" | "targets">("username");
   const [checkingUsername, setCheckingUsername] = useState(true);
   const [usernameInput, setUsernameInput] = useState("");
   const [savingUsername, setSavingUsername] = useState(false);
@@ -42,7 +42,7 @@ export default function OnboardingPage() {
 
   const [weight, setWeight] = useState(140);
   const [height, setHeight] = useState(72);
-  const [sex, setSex] = useState<"male" | "female">("male");
+  const [sex, setSex] = useState<"male" | "female" | null>(null);
   const [phase, setPhase] = useState<GoalPhase>("bulk");
   const [weeklyRate, setWeeklyRate] = useState(0.75);
   const [saving, setSaving] = useState(false);
@@ -157,7 +157,7 @@ export default function OnboardingPage() {
       current_weight_lb: weight,
       height_in: height,
       weekly_rate_lb: weeklyRate,
-      sex,
+      sex: sex ?? "male",
     });
     setSaving(false);
     if (error) {
@@ -224,8 +224,44 @@ export default function OnboardingPage() {
         </div>
 
         <button
-          onClick={() => setStep("targets")}
+          onClick={() => setStep("gender")}
           disabled={!selectedGoal}
+          className="mt-8 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-40"
+        >
+          Continue
+        </button>
+      </div>
+    );
+  }
+
+  if (step === "gender") {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col justify-center px-6 py-10">
+        <h1 className="text-2xl font-bold">What&apos;s your gender?</h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          This locks in which body diagram you&apos;ll see on the Fitness tab and how your strength
+          ranks are compared — you can change it later from Settings → Edit goals.
+        </p>
+
+        <div className="mt-8 grid grid-cols-2 gap-3">
+          {(["male", "female"] as const).map((s) => (
+            <button
+              key={s}
+              onClick={() => setSex(s)}
+              className={`rounded-2xl border py-6 text-sm font-semibold capitalize transition ${
+                sex === s
+                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
+                  : "border-zinc-800 bg-zinc-900 text-zinc-300 active:scale-[0.98]"
+              }`}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        <button
+          onClick={() => setStep("targets")}
+          disabled={!sex}
           className="mt-8 w-full rounded-xl bg-emerald-500 py-3 font-semibold text-black disabled:opacity-40"
         >
           Continue

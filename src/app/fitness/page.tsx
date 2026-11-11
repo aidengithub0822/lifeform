@@ -390,26 +390,7 @@ export default function FitnessPage() {
         🏋️ My lifts — edit or delete
       </button>
 
-      <div className="mt-6 flex gap-1 rounded-full bg-zinc-900 p-1">
-        <button
-          onClick={() => setSex("male")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "male" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Man
-        </button>
-        <button
-          onClick={() => setSex("female")}
-          className={`flex-1 rounded-full py-2 text-sm font-semibold ${
-            sex === "female" ? "bg-emerald-500 text-black" : "text-zinc-400"
-          }`}
-        >
-          Woman
-        </button>
-      </div>
-
-      <p className="mt-4 text-xs text-[#71717a]">
+      <p className="mt-6 text-xs text-[#71717a]">
         Each muscle is colored by its own rank, from your logged lifts relative to your bodyweight. Tap a muscle for details.
       </p>
       <MuscleMapOverlay sex={sex} ranks={ranksByMuscle} onSelect={(m) => setSelectedMuscle(m === selectedMuscle ? null : m)} />

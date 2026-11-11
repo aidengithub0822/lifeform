@@ -60,6 +60,17 @@ export function CloseIcon({ className }: { className?: string }) {
   );
 }
 
+export function GifIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} className={className}>
+      <rect x="2.5" y="6" width="19" height="12" rx="3" />
+      <text x="12" y="14.7" textAnchor="middle" fontSize="7.2" fontWeight="800" fill="currentColor" stroke="none" fontFamily="sans-serif">
+        GIF
+      </text>
+    </svg>
+  );
+}
+
 export function SendIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={className}>
