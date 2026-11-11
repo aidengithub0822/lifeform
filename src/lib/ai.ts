@@ -15,7 +15,7 @@ import { GoogleGenAI, Type, ApiError as GeminiApiError, type Schema } from "@goo
 import Groq, { APIError as GroqAPIError } from "groq-sdk";
 
 export const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-export const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
+export const GROQ_MODEL = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
 let _gemini: GoogleGenAI | null = null;
 export function geminiClient(): GoogleGenAI {
