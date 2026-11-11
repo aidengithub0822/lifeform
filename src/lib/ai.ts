@@ -22,7 +22,24 @@ export function geminiClient(): GoogleGenAI {
   if (!process.env.GEMINI_API_KEY) {
     throw new Error("Server is missing GEMINI_API_KEY. Add it in your deployment's environment variables.");
   }
-  if (!_gemini) _gemini = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  if (!_gemini) {
+    _gemini = new GoogleGenAI({
+      apiKey: process.env.GEMINI_API_KEY,
+      httpOptions: {
+        // The SDK has NO request timeout by default, and silently retries up
+        // to 5 times (with exponential backoff up to 60s between attempts)
+        // on 429/5xx responses. On a free-tier key that gets rate-limited
+        // sometimes, that combination can turn one slow request into several
+        // minutes of silent waiting before Vercel's own function timeout
+        // finally kills it with an opaque 504 — exactly what made food
+        // scans and photo analysis feel like they'd hung. Bound each
+        // attempt to 15s and allow only one quick retry so a failure
+        // surfaces in a few seconds instead of minutes.
+        timeout: 15_000,
+        retryOptions: { attempts: 2, initialDelay: 1, maxDelay: 3 },
+      },
+    });
+  }
   return _gemini;
 }
 
@@ -36,6 +53,14 @@ export function groqClient(): Groq {
 }
 
 export function explainAiError(err: unknown): { status: number; message: string } {
+  // A per-attempt request timeout (see geminiClient's httpOptions.timeout)
+  // aborts via AbortController, which surfaces as a DOMException/Error named
+  // "AbortError" rather than a GeminiApiError — catch that distinctly so a
+  // slow/unresponsive Gemini request still gets a quick, clear message
+  // instead of falling through to the generic 500 below.
+  if (err instanceof Error && (err.name === "AbortError" || /timed? ?out|timeout/i.test(err.message))) {
+    return { status: 503, message: "The AI is taking too long to respond right now — try again in a moment." };
+  }
   if (err instanceof GroqAPIError) {
     const s = err.status ?? 500;
     if (s === 401 || s === 403) return { status: 502, message: "The server's AI key was rejected. Check GROQ_API_KEY in your deployment settings." };
