@@ -39,7 +39,10 @@ export default async function HomePage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: goal }, { data: profile }] = await Promise.all([
+  const [
+    { data: goal, error: goalError },
+    { data: profile, error: profileError },
+  ] = await Promise.all([
     supabase.from("goals").select("*").eq("user_id", user.id).maybeSingle<Goal>(),
     supabase
       .from("profiles")
@@ -47,6 +50,28 @@ export default async function HomePage({
       .eq("user_id", user.id)
       .maybeSingle<{ username: string | null; timezone: string | null }>(),
   ]);
+
+  // A transient read failure (e.g. the DB connection coming back from being
+  // idle overnight) must NOT be treated the same as "this account has never
+  // onboarded" — that was sending already-onboarded users back through the
+  // whole onboarding flow every time they reopened the app after it sat
+  // closed for a day or so, since `data` comes back null on error too and
+  // a null goal/profile used to look identical to a genuinely new account.
+  // Show a quick retry instead of silently bouncing them into onboarding.
+  if (goalError || profileError) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
+        <p className="text-sm text-zinc-400">Couldn&apos;t load your data just now.</p>
+        {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- deliberate hard reload, not a client nav, so it never reuses a cached RSC response */}
+        <a
+          href="/"
+          className="mt-4 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-black"
+        >
+          Try again
+        </a>
+      </div>
+    );
+  }
 
   // Username is a forced gate for every account (new or pre-existing) —
   // checked ahead of the goal check since onboarding's own first step is

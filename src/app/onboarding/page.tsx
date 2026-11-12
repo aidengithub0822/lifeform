@@ -35,6 +35,7 @@ export default function OnboardingPage() {
   // for a split second before we know whether a username is already set.
   const [step, setStep] = useState<"username" | "intro" | "gender" | "targets">("username");
   const [checkingUsername, setCheckingUsername] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [usernameInput, setUsernameInput] = useState("");
   const [savingUsername, setSavingUsername] = useState(false);
   const [usernameError, setUsernameError] = useState<string | null>(null);
@@ -57,7 +58,10 @@ export default function OnboardingPage() {
         setCheckingUsername(false);
         return;
       }
-      const [{ data: profile }, { data: goal }] = await Promise.all([
+      const [
+        { data: profile, error: profileError },
+        { data: goal, error: goalError },
+      ] = await Promise.all([
         supabase
           .from("profiles")
           .select("username")
@@ -75,6 +79,14 @@ export default function OnboardingPage() {
             sex: string | null;
           }>(),
       ]);
+      // A transient read failure must not be treated as "this account has no
+      // username/goal yet" — that silently restarted onboarding from scratch
+      // for already-set-up accounts. Show a retry instead of guessing.
+      if (profileError || goalError) {
+        setLoadError(true);
+        setCheckingUsername(false);
+        return;
+      }
       if (!profile?.username) {
         setCheckingUsername(false);
         return;
@@ -166,6 +178,24 @@ export default function OnboardingPage() {
     }
     router.push("/");
     router.refresh();
+  }
+
+  if (loadError) {
+    return (
+      <div className="mx-auto flex min-h-dvh max-w-md flex-col items-center justify-center px-6 text-center">
+        <p className="text-sm text-zinc-400">Couldn&apos;t load your account just now.</p>
+        <button
+          onClick={() => {
+            setLoadError(false);
+            setCheckingUsername(true);
+            window.location.reload();
+          }}
+          className="mt-4 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-black"
+        >
+          Try again
+        </button>
+      </div>
+    );
   }
 
   if (step === "username") {

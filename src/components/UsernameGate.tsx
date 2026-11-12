@@ -27,11 +27,15 @@ export default function UsernameGate() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user || cancelled) return;
-      const { data: profile } = await supabase
+      const { data: profile, error } = await supabase
         .from("profiles")
         .select("username")
         .eq("user_id", user.id)
         .maybeSingle<{ username: string | null }>();
+      // A transient read failure must not be treated as "no username" —
+      // that was capable of bouncing an already-onboarded user back into
+      // onboarding on any brief hiccup. Just skip the check this time.
+      if (error) return;
       if (!cancelled && !profile?.username) router.replace("/onboarding");
     }
     check();
