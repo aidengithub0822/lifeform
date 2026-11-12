@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate, moderateImage } from "@/lib/moderate";
 import { getModerationContext, isDeveloper } from "@/lib/moderationAccess";
-import { isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
+import { isGiphyUrl, isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
 import { notifyMentions, notifyUser } from "@/lib/notify";
 import type { CommunityComment } from "@/lib/types";
 
@@ -42,9 +42,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!text && !photoUrl) return NextResponse.json({ error: "Reply can't be empty" }, { status: 400 });
   if (text.length > 1000) return NextResponse.json({ error: "Keep it under 1000 characters" }, { status: 400 });
 
-  // Media must be a file this user uploaded to the app's own storage bucket
-  // (same rule as a top-level post's photo).
-  if (photoUrl && !isOwnMediaUrl(user.id, photoUrl)) {
+  // A photo must be a file this user uploaded to the app's own storage
+  // bucket (same rule as a top-level post's photo). A GIF is never
+  // uploaded at all — GifPicker hands back GIPHY's own hosted URL
+  // directly — so it's checked against GIPHY's host instead.
+  const isGif = !!photoUrl && isGiphyUrl(photoUrl);
+  if (photoUrl && !isGif && !isOwnMediaUrl(user.id, photoUrl)) {
     return NextResponse.json({ error: "That photo link isn't valid." }, { status: 400 });
   }
 
@@ -52,14 +55,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (text && !ctx.bypass) {
     const { allowed, reason } = await moderate(text, { verified: ctx.verified });
     if (!allowed) {
-      if (photoUrl) await removeOwnMedia(user.id, photoUrl);
+      if (photoUrl && !isGif) await removeOwnMedia(user.id, photoUrl);
       return NextResponse.json(
         { error: reason || "This reply doesn't meet the community guidelines — try rephrasing." },
         { status: 422 }
       );
     }
   }
-  if (photoUrl && !ctx.bypass) {
+  // GIPHY already filters its search results by content rating, so a
+  // GIF never needs our own Gemini vision pass — only a self-uploaded
+  // photo does.
+  if (photoUrl && !isGif && !ctx.bypass) {
     const image = await moderateImage(photoUrl, { verified: ctx.verified });
     if (!image.allowed) {
       await removeOwnMedia(user.id, photoUrl);

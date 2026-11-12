@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
@@ -16,14 +16,20 @@ import PostVideo from "@/components/PostVideo";
 import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { isLockedNow, isPinnedNow } from "@/lib/pins";
 import { CameraIcon, ChevronIcon, CloseIcon, GifIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import GifPicker from "@/components/GifPicker";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
 
 // Shared by both reply composers below (the one under the post, and each
-// comment's own nested one) — uploads a picked photo/GIF file to this
-// user's "profile-media" folder and returns its public URL, or null if
-// nothing was picked. GIFs go up untouched (recompressing through canvas
-// would flatten them to one frame); everything else goes through the same
-// resize/compress pass every other photo upload in the app uses.
+// comment's own nested one) — uploads a picked photo (the Camera button)
+// to this user's "profile-media" folder and returns its public URL. GIFs
+// are handled separately now (see GifPicker/pickReplyGif below): picking
+// one from GIPHY just hands back its hosted URL directly, no upload at
+// all, which sidesteps the real bug the old "pick a .gif file from your
+// library" flow had — the OS file/photo picker doesn't reliably hand back
+// usable raw GIF bytes, which surfaced as an upload failure. The isGif
+// branch here stays only as a safety net in case someone picks an actual
+// .gif through the Camera/library button (accept="image/*" matches it
+// too) — recompressing a GIF through canvas would flatten its animation.
 async function uploadReplyMedia(
   supabase: ReturnType<typeof createClient>,
   userId: string,
@@ -40,7 +46,6 @@ async function uploadReplyMedia(
   return supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
 }
 
-const MAX_REPLY_GIF_BYTES = 5 * 1024 * 1024;
 
 interface ThreadProps {
   postId: string;
@@ -84,32 +89,28 @@ function CommentNode({
   const [error, setError] = useState<string | null>(null);
   const [replyPhotoFile, setReplyPhotoFile] = useState<File | null>(null);
   const [replyPhotoPreview, setReplyPhotoPreview] = useState<string | null>(null);
-  const replyFileInputRef = useRef<HTMLInputElement>(null);
+  const [replyGifUrl, setReplyGifUrl] = useState<string | null>(null);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const supabase = createClient();
 
   function clearReplyPhoto() {
     setReplyPhotoFile(null);
     setReplyPhotoPreview(null);
-    if (replyFileInputRef.current) replyFileInputRef.current.value = "";
+    setReplyGifUrl(null);
   }
 
   function pickReplyFile(file: File) {
     setError(null);
+    setReplyGifUrl(null);
     setReplyPhotoFile(file);
     setReplyPhotoPreview(URL.createObjectURL(file));
   }
 
-  function pickReplyGif(file: File) {
-    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
-    if (!isGif) {
-      setError("That file isn't a GIF.");
-      return;
-    }
-    if (file.size > MAX_REPLY_GIF_BYTES) {
-      setError("GIFs can be up to 5 MB — trim or use a shorter one.");
-      return;
-    }
-    pickReplyFile(file);
+  function pickReplyGif(url: string) {
+    setError(null);
+    setReplyPhotoFile(null);
+    setReplyPhotoPreview(null);
+    setReplyGifUrl(url);
   }
 
   const children = allComments.filter((c) => c.parent_id === comment.id);
@@ -145,12 +146,12 @@ function CommentNode({
 
   async function submitReply() {
     const body = draft.trim();
-    if (!body && !replyPhotoFile) return;
+    if (!body && !replyPhotoFile && !replyGifUrl) return;
     if (!myUserId) return;
     setPosting(true);
     setError(null);
     try {
-      let photoUrl: string | null = null;
+      let photoUrl: string | null = replyGifUrl;
       if (replyPhotoFile) {
         try {
           photoUrl = await uploadReplyMedia(supabase, myUserId, replyPhotoFile);
@@ -265,10 +266,10 @@ function CommentNode({
               autoFocus
               className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
-            {replyPhotoPreview && (
+            {(replyPhotoPreview || replyGifUrl) && (
               <div className="relative w-fit">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={replyPhotoPreview} alt="" className="h-20 w-20 rounded-xl object-cover" />
+                <img src={replyPhotoPreview ?? replyGifUrl ?? ""} alt="" className="h-20 w-20 rounded-xl object-cover" />
                 <button
                   onClick={clearReplyPhoto}
                   className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
@@ -289,19 +290,13 @@ function CommentNode({
                     onChange={(e) => e.target.files?.[0] && pickReplyFile(e.target.files[0])}
                   />
                 </label>
-                <label className="flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 text-[11px] font-medium text-zinc-500 active:bg-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setGifPickerOpen(true)}
+                  className="flex items-center gap-1 rounded-full px-1.5 py-1 text-[11px] font-medium text-zinc-500 active:bg-zinc-800"
+                >
                   <GifIcon className="h-3.5 w-3.5" />
-                  <input
-                    ref={replyFileInputRef}
-                    type="file"
-                    accept="image/gif"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) pickReplyGif(e.target.files[0]);
-                      if (replyFileInputRef.current) replyFileInputRef.current.value = "";
-                    }}
-                  />
-                </label>
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 {error && <p className="text-xs text-red-400">{error}</p>}
@@ -310,7 +305,7 @@ function CommentNode({
                 </button>
                 <button
                   onClick={submitReply}
-                  disabled={posting || (!draft.trim() && !replyPhotoFile)}
+                  disabled={posting || (!draft.trim() && !replyPhotoFile && !replyGifUrl)}
                   className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
                 >
                   {posting ? "Posting…" : "Reply"}
@@ -319,6 +314,7 @@ function CommentNode({
             </div>
           </div>
         )}
+        <GifPicker open={gifPickerOpen} onClose={() => setGifPickerOpen(false)} onSelect={pickReplyGif} />
       </div>
 
       {children.length > 0 && (
@@ -382,30 +378,27 @@ export default function CommunityThreadPage() {
   const [replyError, setReplyError] = useState<string | null>(null);
   const [replyPhotoFile, setReplyPhotoFile] = useState<File | null>(null);
   const [replyPhotoPreview, setReplyPhotoPreview] = useState<string | null>(null);
-  const replyGifInputRef = useRef<HTMLInputElement>(null);
+  const [replyGifUrl, setReplyGifUrl] = useState<string | null>(null);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
 
   function clearReplyPhoto() {
     setReplyPhotoFile(null);
     setReplyPhotoPreview(null);
+    setReplyGifUrl(null);
   }
 
   function pickReplyFile(file: File) {
     setReplyError(null);
+    setReplyGifUrl(null);
     setReplyPhotoFile(file);
     setReplyPhotoPreview(URL.createObjectURL(file));
   }
 
-  function pickReplyGif(file: File) {
-    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
-    if (!isGif) {
-      setReplyError("That file isn't a GIF.");
-      return;
-    }
-    if (file.size > MAX_REPLY_GIF_BYTES) {
-      setReplyError("GIFs can be up to 5 MB — trim or use a shorter one.");
-      return;
-    }
-    pickReplyFile(file);
+  function pickReplyGif(url: string) {
+    setReplyError(null);
+    setReplyPhotoFile(null);
+    setReplyPhotoPreview(null);
+    setReplyGifUrl(url);
   }
 
   async function load() {
@@ -471,12 +464,12 @@ export default function CommunityThreadPage() {
 
   async function submitReply() {
     const body = reply.trim();
-    if (!body && !replyPhotoFile) return;
+    if (!body && !replyPhotoFile && !replyGifUrl) return;
     if (!myUserId) return;
     setPosting(true);
     setReplyError(null);
     try {
-      let photoUrl: string | null = null;
+      let photoUrl: string | null = replyGifUrl;
       if (replyPhotoFile) {
         try {
           photoUrl = await uploadReplyMedia(supabase, myUserId, replyPhotoFile);
@@ -732,10 +725,10 @@ export default function CommunityThreadPage() {
               rows={2}
               className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
-            {replyPhotoPreview && (
+            {(replyPhotoPreview || replyGifUrl) && (
               <div className="relative w-fit">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={replyPhotoPreview} alt="" className="h-20 w-20 rounded-xl object-cover" />
+                <img src={replyPhotoPreview ?? replyGifUrl ?? ""} alt="" className="h-20 w-20 rounded-xl object-cover" />
                 <button
                   onClick={clearReplyPhoto}
                   className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
@@ -756,25 +749,19 @@ export default function CommunityThreadPage() {
                     onChange={(e) => e.target.files?.[0] && pickReplyFile(e.target.files[0])}
                   />
                 </label>
-                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setGifPickerOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+                >
                   <GifIcon className="h-4 w-4" />
-                  <input
-                    ref={replyGifInputRef}
-                    type="file"
-                    accept="image/gif"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) pickReplyGif(e.target.files[0]);
-                      if (replyGifInputRef.current) replyGifInputRef.current.value = "";
-                    }}
-                  />
-                </label>
+                </button>
               </div>
               <div className="flex items-center gap-2">
                 {replyError && <p className="text-xs text-red-400">{replyError}</p>}
                 <button
                   onClick={submitReply}
-                  disabled={posting || (!reply.trim() && !replyPhotoFile)}
+                  disabled={posting || (!reply.trim() && !replyPhotoFile && !replyGifUrl)}
                   className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                 >
                   {posting ? "Posting…" : "Reply"}
@@ -783,6 +770,7 @@ export default function CommunityThreadPage() {
             </div>
           </div>
         </div>
+        <GifPicker open={gifPickerOpen} onClose={() => setGifPickerOpen(false)} onSelect={pickReplyGif} />
 
         <div className="mt-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-zinc-600">

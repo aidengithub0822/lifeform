@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { moderate, moderateImage } from "@/lib/moderate";
 import { getModerationContext, isDeveloper } from "@/lib/moderationAccess";
-import { isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
+import { isGiphyUrl, isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
 import { notifyDevelopers, notifyMentions } from "@/lib/notify";
 import type { CommunityPost } from "@/lib/types";
 
@@ -76,8 +76,12 @@ export async function POST(request: Request) {
   // The developer, and accounts the developer has approved, skip the AI post
   // filter and are the only ones who can attach a video.
   const { bypass, verified } = await getModerationContext(supabase, user.id);
-  // Media must be files this user uploaded to the app's own storage bucket.
-  if (photoUrl && !isOwnMediaUrl(user.id, photoUrl)) {
+  // A photo must be a file this user uploaded to the app's own storage
+  // bucket — except a GIF, which is never uploaded at all (GifPicker hands
+  // back GIPHY's own hosted URL directly), so it's checked against GIPHY's
+  // host instead.
+  const isGif = !!photoUrl && isGiphyUrl(photoUrl);
+  if (photoUrl && !isGif && !isOwnMediaUrl(user.id, photoUrl)) {
     return NextResponse.json({ error: "That photo link isn't valid." }, { status: 400 });
   }
   if (videoUrl) {
@@ -92,7 +96,7 @@ export async function POST(request: Request) {
   if (message && !bypass) {
     const { allowed, reason } = await moderate(message, { verified });
     if (!allowed) {
-      if (photoUrl) await removeOwnMedia(user.id, photoUrl);
+      if (photoUrl && !isGif) await removeOwnMedia(user.id, photoUrl);
       return NextResponse.json(
         { error: reason || "This post doesn't meet the community guidelines — try rephrasing." },
         { status: 422 }
@@ -101,7 +105,9 @@ export async function POST(request: Request) {
   }
 
   // Photos are checked by AI too (developer and approved accounts skip it).
-  if (photoUrl && !bypass) {
+  // GIPHY already filters by content rating, so a GIF skips this — only a
+  // self-uploaded photo needs our own Gemini vision pass.
+  if (photoUrl && !isGif && !bypass) {
     const image = await moderateImage(photoUrl, { verified });
     if (!image.allowed) {
       await removeOwnMedia(user.id, photoUrl);

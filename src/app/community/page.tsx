@@ -17,6 +17,7 @@ import PostVideo from "@/components/PostVideo";
 import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { isLockedNow, isPinnedNow, sortForFeed } from "@/lib/pins";
 import { CameraIcon, CloseIcon, CommentIcon, GifIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import GifPicker from "@/components/GifPicker";
 import type { AuthorInfo, CommunityPost } from "@/lib/types";
 
 export default function CommunityPage() {
@@ -32,6 +33,8 @@ export default function CommunityPage() {
   const [draft, setDraft] = useState("");
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [gifUrl, setGifUrl] = useState<string | null>(null);
+  const [gifPickerOpen, setGifPickerOpen] = useState(false);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
@@ -58,7 +61,6 @@ export default function CommunityPage() {
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [videoPreview, setVideoPreview] = useState<string | null>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const gifInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -145,8 +147,16 @@ export default function CommunityPage() {
   }, []);
 
   function pickPhoto(file: File) {
+    setGifUrl(null);
     setPhotoFile(file);
     setPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function pickGif(url: string) {
+    setError(null);
+    clearVideo();
+    clearPhoto();
+    setGifUrl(url);
   }
 
   const MAX_VIDEO_BYTES = 50 * 1024 * 1024; // Supabase Storage's default per-file cap
@@ -172,27 +182,6 @@ export default function CommunityPage() {
     if (videoInputRef.current) videoInputRef.current.value = "";
   }
 
-  // Matches the photo-moderation size cap server-side (MAX_IMAGE_BYTES in
-  // src/lib/moderate.ts) — a bigger file would just upload and then bounce
-  // back as "too large" during moderation, which is a confusing way to find
-  // out. Keeping the limits in sync means the error shows up immediately.
-  const MAX_GIF_BYTES = 5 * 1024 * 1024;
-
-  function pickGif(file: File) {
-    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
-    if (!isGif) {
-      setError("That file isn't a GIF.");
-      return;
-    }
-    if (file.size > MAX_GIF_BYTES) {
-      setError("GIFs can be up to 5 MB — trim or use a shorter one.");
-      return;
-    }
-    setError(null);
-    clearVideo();
-    pickPhoto(file);
-  }
-
   function clearPhoto() {
     setPhotoFile(null);
     setPhotoPreview(null);
@@ -201,22 +190,17 @@ export default function CommunityPage() {
 
   async function submitPost() {
     const message = draft.trim();
-    if (!message && !photoFile && !videoFile) return;
+    if (!message && !photoFile && !videoFile && !gifUrl) return;
     if (!myUserId) return;
     setPosting(true);
     setError(null);
     try {
-      let photoUrl: string | null = null;
+      let photoUrl: string | null = gifUrl;
       if (photoFile) {
-        // GIFs go up as-is — recompressing through canvas (like a regular
-        // photo) would flatten them to their first frame and lose the
-        // animation, so this is the one picked-file path that skips it.
-        const isGif = photoFile.type === "image/gif" || /\.gif$/i.test(photoFile.name);
-        const blob = isGif ? photoFile : await compressImageForUpload(photoFile, 1600, 0.85);
-        const ext = isGif ? "gif" : "jpg";
-        const path = `${myUserId}/community/${Date.now()}.${ext}`;
+        const blob = await compressImageForUpload(photoFile, 1600, 0.85);
+        const path = `${myUserId}/community/${Date.now()}.jpg`;
         const { error: uploadError } = await supabase.storage.from("profile-media").upload(path, blob, {
-          contentType: isGif ? "image/gif" : "image/jpeg",
+          contentType: "image/jpeg",
         });
         if (uploadError) {
           setError(uploadError.message);
@@ -252,6 +236,7 @@ export default function CommunityPage() {
       setDraft("");
       clearPhoto();
       clearVideo();
+      setGifUrl(null);
       await load();
     } catch {
       setError("Couldn't reach the server");
@@ -383,12 +368,15 @@ export default function CommunityPage() {
               rows={2}
               className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2.5 text-[15px] leading-snug text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
-            {photoPreview && (
+            {(photoPreview || gifUrl) && (
               <div className="relative w-fit">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoPreview} alt="" className="h-24 w-24 rounded-xl object-cover" />
+                <img src={photoPreview ?? gifUrl ?? ""} alt="" className="h-24 w-24 rounded-xl object-cover" />
                 <button
-                  onClick={clearPhoto}
+                  onClick={() => {
+                    clearPhoto();
+                    setGifUrl(null);
+                  }}
                   className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
                   aria-label="Remove photo"
                 >
@@ -426,20 +414,14 @@ export default function CommunityPage() {
                     }}
                   />
                 </label>
-                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => setGifPickerOpen(true)}
+                  className="flex items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800"
+                >
                   <GifIcon className="h-4 w-4" />
                   GIF
-                  <input
-                    ref={gifInputRef}
-                    type="file"
-                    accept="image/gif"
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.[0]) pickGif(e.target.files[0]);
-                      if (gifInputRef.current) gifInputRef.current.value = "";
-                    }}
-                  />
-                </label>
+                </button>
                 {canPostVideo && (
                   <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-emerald-400 active:bg-zinc-800">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -461,7 +443,7 @@ export default function CommunityPage() {
                 {error && <p className="text-xs text-red-400">{error}</p>}
                 <button
                   onClick={submitPost}
-                  disabled={posting || (!draft.trim() && !photoFile && !videoFile)}
+                  disabled={posting || (!draft.trim() && !photoFile && !videoFile && !gifUrl)}
                   className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
                 >
                   {posting ? "Posting…" : "Post"}
@@ -470,6 +452,7 @@ export default function CommunityPage() {
             </div>
           </div>
         </div>
+        <GifPicker open={gifPickerOpen} onClose={() => setGifPickerOpen(false)} onSelect={pickGif} />
 
         <div className="mt-6 divide-y divide-zinc-900">
           {loading && <p className="py-6 text-sm text-zinc-600">Loading…</p>}

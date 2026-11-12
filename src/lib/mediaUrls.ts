@@ -17,6 +17,20 @@ export function isOwnMediaUrl(userId: string, url: string): boolean {
   return !!prefix && url.startsWith(prefix);
 }
 
+// GIPHY's own CDN hosts the GIF — we never upload or store it ourselves, so
+// there's no "own folder" check to do here, just a host allowlist so a
+// client can't hand us an arbitrary (unmoderated, possibly malicious) URL
+// and have the server treat it as trusted media. GIPHY serves from several
+// subdomains (media0-6, i, media) — all end in .giphy.com.
+export function isGiphyUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === "https:" && (hostname === "giphy.com" || hostname.endsWith(".giphy.com"));
+  } catch {
+    return false;
+  }
+}
+
 /** Best-effort delete of an uploaded file (used when a photo fails moderation). */
 export async function removeOwnMedia(userId: string, url: string): Promise<void> {
   const prefix = publicPrefix(userId);

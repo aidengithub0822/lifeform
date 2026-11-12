@@ -307,6 +307,10 @@ dev` for real (not just to build):
   the widget endpoint)
 - `GEMINI_API_KEY` (vision: food/physique photo scans, image moderation)
 - `GROQ_API_KEY` (text: Coach chat, recommend-*/estimate-recipe routes, text moderation)
+- `GIPHY_API_KEY` (GIF search for Community posts/replies — `src/app/api/gifs/search/route.ts`.
+  Free "beta" tier key from developers.giphy.com, no payment info needed. Picking a GIF
+  never uploads anything — the client gets back GIPHY's own hosted URL directly, so there's
+  no file to moderate; the API route restricts search to `rating=pg-13`.)
 - `GEMINI_MODEL` / `GROQ_MODEL` (optional overrides — default to
   `gemini-3.8-flash` / `llama-3.3-70b-versatile`; see `src/lib/ai.ts`)
 - `NEXT_PUBLIC_VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — Web Push (see
