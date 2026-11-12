@@ -229,6 +229,7 @@ export interface CommunityComment {
   author_username: string | null;
   body: string;
   parent_id: string | null;
+  photo_url: string | null;
   created_at: string;
 }
 

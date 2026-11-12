@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { moderate } from "@/lib/moderate";
+import { moderate, moderateImage } from "@/lib/moderate";
 import { getModerationContext, isDeveloper } from "@/lib/moderationAccess";
+import { isOwnMediaUrl, removeOwnMedia } from "@/lib/mediaUrls";
 import { notifyMentions, notifyUser } from "@/lib/notify";
 import type { CommunityComment } from "@/lib/types";
 
@@ -37,16 +38,36 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const json = await request.json();
   const text = typeof json?.body === "string" ? json.body.trim() : "";
   const parentId = typeof json?.parentId === "string" ? json.parentId : null;
-  if (!text) return NextResponse.json({ error: "Reply can't be empty" }, { status: 400 });
+  const photoUrl = typeof json?.photoUrl === "string" && json.photoUrl ? json.photoUrl : null;
+  if (!text && !photoUrl) return NextResponse.json({ error: "Reply can't be empty" }, { status: 400 });
   if (text.length > 1000) return NextResponse.json({ error: "Keep it under 1000 characters" }, { status: 400 });
 
+  // Media must be a file this user uploaded to the app's own storage bucket
+  // (same rule as a top-level post's photo).
+  if (photoUrl && !isOwnMediaUrl(user.id, photoUrl)) {
+    return NextResponse.json({ error: "That photo link isn't valid." }, { status: 400 });
+  }
+
   const ctx = await getModerationContext(supabase, user.id);
-  const { allowed, reason } = ctx.bypass ? { allowed: true, reason: "" } : await moderate(text, { verified: ctx.verified });
-  if (!allowed) {
-    return NextResponse.json(
-      { error: reason || "This reply doesn't meet the community guidelines — try rephrasing." },
-      { status: 422 }
-    );
+  if (text && !ctx.bypass) {
+    const { allowed, reason } = await moderate(text, { verified: ctx.verified });
+    if (!allowed) {
+      if (photoUrl) await removeOwnMedia(user.id, photoUrl);
+      return NextResponse.json(
+        { error: reason || "This reply doesn't meet the community guidelines — try rephrasing." },
+        { status: 422 }
+      );
+    }
+  }
+  if (photoUrl && !ctx.bypass) {
+    const image = await moderateImage(photoUrl, { verified: ctx.verified });
+    if (!image.allowed) {
+      await removeOwnMedia(user.id, photoUrl);
+      return NextResponse.json(
+        { error: image.reason || "That photo doesn't meet the community guidelines." },
+        { status: 422 }
+      );
+    }
   }
 
   const { data: profile } = await supabase
@@ -61,6 +82,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     author_username: profile?.username ?? null,
     body: text,
     parent_id: parentId,
+    photo_url: photoUrl,
   });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -87,7 +109,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       actorUsername: profile?.username ?? null,
       type: "reply",
       title: `${name} replied to you 💬`,
-      body: text,
+      body: text || "📷 Photo",
       url: `/community/${id}`,
     });
   }

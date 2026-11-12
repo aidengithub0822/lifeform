@@ -504,6 +504,9 @@ create index if not exists community_comments_post_time_idx on public.community_
 -- Existing installs: nested replies.
 alter table public.community_comments add column if not exists parent_id uuid references public.community_comments(id) on delete cascade;
 create index if not exists community_comments_parent_idx on public.community_comments (parent_id);
+-- Existing installs: photo/GIF attachments on replies (same "profile-media"
+-- bucket + ownership rules as a top-level post's photo_url).
+alter table public.community_comments add column if not exists photo_url text;
 
 -- Likes and comments on a profile gallery photo.
 create table if not exists public.photo_likes (

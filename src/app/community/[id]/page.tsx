@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { compressImageForUpload } from "@/lib/imageUpload";
 import AuthorLine from "@/components/AuthorLine";
 import Avatar from "@/components/Avatar";
 import PullToRefresh from "@/components/PullToRefresh";
@@ -14,8 +15,32 @@ import PinnedBadge from "@/components/PinnedBadge";
 import PostVideo from "@/components/PostVideo";
 import { RESERVED_DEV_COLOR } from "@/lib/nameColor";
 import { isLockedNow, isPinnedNow } from "@/lib/pins";
-import { ChevronIcon, HeartIcon, ShareIcon } from "@/components/icons";
+import { CameraIcon, ChevronIcon, CloseIcon, GifIcon, HeartIcon, ShareIcon } from "@/components/icons";
 import type { AuthorInfo, CommunityComment, CommunityPost } from "@/lib/types";
+
+// Shared by both reply composers below (the one under the post, and each
+// comment's own nested one) — uploads a picked photo/GIF file to this
+// user's "profile-media" folder and returns its public URL, or null if
+// nothing was picked. GIFs go up untouched (recompressing through canvas
+// would flatten them to one frame); everything else goes through the same
+// resize/compress pass every other photo upload in the app uses.
+async function uploadReplyMedia(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  file: File
+): Promise<string> {
+  const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+  const blob = isGif ? file : await compressImageForUpload(file, 1600, 0.85);
+  const ext = isGif ? "gif" : "jpg";
+  const path = `${userId}/community/${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from("profile-media").upload(path, blob, {
+    contentType: isGif ? "image/gif" : "image/jpeg",
+  });
+  if (error) throw error;
+  return supabase.storage.from("profile-media").getPublicUrl(path).data.publicUrl;
+}
+
+const MAX_REPLY_GIF_BYTES = 5 * 1024 * 1024;
 
 interface ThreadProps {
   postId: string;
@@ -57,6 +82,35 @@ function CommentNode({
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replyPhotoFile, setReplyPhotoFile] = useState<File | null>(null);
+  const [replyPhotoPreview, setReplyPhotoPreview] = useState<string | null>(null);
+  const replyFileInputRef = useRef<HTMLInputElement>(null);
+  const supabase = createClient();
+
+  function clearReplyPhoto() {
+    setReplyPhotoFile(null);
+    setReplyPhotoPreview(null);
+    if (replyFileInputRef.current) replyFileInputRef.current.value = "";
+  }
+
+  function pickReplyFile(file: File) {
+    setError(null);
+    setReplyPhotoFile(file);
+    setReplyPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function pickReplyGif(file: File) {
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+    if (!isGif) {
+      setError("That file isn't a GIF.");
+      return;
+    }
+    if (file.size > MAX_REPLY_GIF_BYTES) {
+      setError("GIFs can be up to 5 MB — trim or use a shorter one.");
+      return;
+    }
+    pickReplyFile(file);
+  }
 
   const children = allComments.filter((c) => c.parent_id === comment.id);
   const canDelete = isAdmin || comment.user_id === myUserId;
@@ -91,14 +145,24 @@ function CommentNode({
 
   async function submitReply() {
     const body = draft.trim();
-    if (!body) return;
+    if (!body && !replyPhotoFile) return;
+    if (!myUserId) return;
     setPosting(true);
     setError(null);
     try {
+      let photoUrl: string | null = null;
+      if (replyPhotoFile) {
+        try {
+          photoUrl = await uploadReplyMedia(supabase, myUserId, replyPhotoFile);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : "Couldn't upload that file");
+          return;
+        }
+      }
       const res = await fetch(`/api/community/${postId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, parentId: comment.id }),
+        body: JSON.stringify({ body, parentId: comment.id, photoUrl }),
       });
       const resBody = await res.json();
       if (!res.ok) {
@@ -106,6 +170,7 @@ function CommentNode({
         return;
       }
       setDraft("");
+      clearReplyPhoto();
       setReplying(false);
       onPosted();
     } catch {
@@ -157,7 +222,13 @@ function CommentNode({
             </div>
           </div>
         ) : (
-          <MentionText text={comment.body} className="mt-1.5 text-sm leading-relaxed text-zinc-200" />
+          <>
+            {comment.body && <MentionText text={comment.body} className="mt-1.5 text-sm leading-relaxed text-zinc-200" />}
+            {comment.photo_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={comment.photo_url} alt="" className="mt-1.5 max-h-72 max-w-full rounded-xl object-cover" />
+            )}
+          </>
         )}
         <div className="mt-1.5 flex items-center gap-3">
           <button
@@ -194,18 +265,57 @@ function CommentNode({
               autoFocus
               className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-2.5 py-1.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
-            <div className="flex items-center justify-end gap-2">
-              {error && <p className="mr-auto text-xs text-red-400">{error}</p>}
-              <button onClick={() => setReplying(false)} className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500">
-                Cancel
-              </button>
-              <button
-                onClick={submitReply}
-                disabled={posting || !draft.trim()}
-                className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
-              >
-                {posting ? "Posting…" : "Reply"}
-              </button>
+            {replyPhotoPreview && (
+              <div className="relative w-fit">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={replyPhotoPreview} alt="" className="h-20 w-20 rounded-xl object-cover" />
+                <button
+                  onClick={clearReplyPhoto}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
+                  aria-label="Remove photo"
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <label className="flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 text-[11px] font-medium text-zinc-500 active:bg-zinc-800">
+                  <CameraIcon className="h-3.5 w-3.5" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => e.target.files?.[0] && pickReplyFile(e.target.files[0])}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center gap-1 rounded-full px-1.5 py-1 text-[11px] font-medium text-zinc-500 active:bg-zinc-800">
+                  <GifIcon className="h-3.5 w-3.5" />
+                  <input
+                    ref={replyFileInputRef}
+                    type="file"
+                    accept="image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) pickReplyGif(e.target.files[0]);
+                      if (replyFileInputRef.current) replyFileInputRef.current.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                {error && <p className="text-xs text-red-400">{error}</p>}
+                <button onClick={() => setReplying(false)} className="rounded-full px-2.5 py-1 text-xs font-medium text-zinc-500">
+                  Cancel
+                </button>
+                <button
+                  onClick={submitReply}
+                  disabled={posting || (!draft.trim() && !replyPhotoFile)}
+                  className="rounded-full bg-zinc-50 px-3 py-1 text-xs font-semibold text-zinc-950 disabled:opacity-40"
+                >
+                  {posting ? "Posting…" : "Reply"}
+                </button>
+              </div>
             </div>
           </div>
         )}
@@ -270,6 +380,33 @@ export default function CommunityThreadPage() {
   const [reply, setReply] = useState("");
   const [posting, setPosting] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [replyPhotoFile, setReplyPhotoFile] = useState<File | null>(null);
+  const [replyPhotoPreview, setReplyPhotoPreview] = useState<string | null>(null);
+  const replyGifInputRef = useRef<HTMLInputElement>(null);
+
+  function clearReplyPhoto() {
+    setReplyPhotoFile(null);
+    setReplyPhotoPreview(null);
+  }
+
+  function pickReplyFile(file: File) {
+    setReplyError(null);
+    setReplyPhotoFile(file);
+    setReplyPhotoPreview(URL.createObjectURL(file));
+  }
+
+  function pickReplyGif(file: File) {
+    const isGif = file.type === "image/gif" || /\.gif$/i.test(file.name);
+    if (!isGif) {
+      setReplyError("That file isn't a GIF.");
+      return;
+    }
+    if (file.size > MAX_REPLY_GIF_BYTES) {
+      setReplyError("GIFs can be up to 5 MB — trim or use a shorter one.");
+      return;
+    }
+    pickReplyFile(file);
+  }
 
   async function load() {
     setLoading(true);
@@ -334,14 +471,24 @@ export default function CommunityThreadPage() {
 
   async function submitReply() {
     const body = reply.trim();
-    if (!body) return;
+    if (!body && !replyPhotoFile) return;
+    if (!myUserId) return;
     setPosting(true);
     setReplyError(null);
     try {
+      let photoUrl: string | null = null;
+      if (replyPhotoFile) {
+        try {
+          photoUrl = await uploadReplyMedia(supabase, myUserId, replyPhotoFile);
+        } catch (e) {
+          setReplyError(e instanceof Error ? e.message : "Couldn't upload that file");
+          return;
+        }
+      }
       const res = await fetch(`/api/community/${postId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body }),
+        body: JSON.stringify({ body, photoUrl }),
       });
       const resBody = await res.json();
       if (!res.ok) {
@@ -349,6 +496,7 @@ export default function CommunityThreadPage() {
         return;
       }
       setReply("");
+      clearReplyPhoto();
       await load();
     } catch {
       setReplyError("Couldn't reach the server");
@@ -584,15 +732,54 @@ export default function CommunityThreadPage() {
               rows={2}
               className="w-full resize-none rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-zinc-600"
             />
-            <div className="flex items-center justify-end gap-2">
-              {replyError && <p className="mr-auto text-xs text-red-400">{replyError}</p>}
-              <button
-                onClick={submitReply}
-                disabled={posting || !reply.trim()}
-                className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
-              >
-                {posting ? "Posting…" : "Reply"}
-              </button>
+            {replyPhotoPreview && (
+              <div className="relative w-fit">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={replyPhotoPreview} alt="" className="h-20 w-20 rounded-xl object-cover" />
+                <button
+                  onClick={clearReplyPhoto}
+                  className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-zinc-950 text-zinc-300 ring-1 ring-zinc-700"
+                  aria-label="Remove photo"
+                >
+                  <CloseIcon className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                  <CameraIcon className="h-4 w-4" />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => e.target.files?.[0] && pickReplyFile(e.target.files[0])}
+                  />
+                </label>
+                <label className="flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium text-zinc-500 active:bg-zinc-800">
+                  <GifIcon className="h-4 w-4" />
+                  <input
+                    ref={replyGifInputRef}
+                    type="file"
+                    accept="image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files?.[0]) pickReplyGif(e.target.files[0]);
+                      if (replyGifInputRef.current) replyGifInputRef.current.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                {replyError && <p className="text-xs text-red-400">{replyError}</p>}
+                <button
+                  onClick={submitReply}
+                  disabled={posting || (!reply.trim() && !replyPhotoFile)}
+                  className="rounded-full bg-zinc-50 px-4 py-1.5 text-sm font-semibold text-zinc-950 disabled:opacity-40"
+                >
+                  {posting ? "Posting…" : "Reply"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
