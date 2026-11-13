@@ -402,6 +402,41 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   names in `LIFT_SUBSECTIONS` MUST match `ALL_EXERCISES` (trainingSplits.ts),
   which `/api/lifts` validates against — to add an exercise, add it to
   `EXTRA_EXERCISES` there AND list it in a subsection here.
+- **"Type your lift"** (`/api/lifts/custom`, `custom_lifts` table,
+  `src/lib/classifyLift.ts`): the fallback on each muscle-category tab in
+  `/fitness` for an exercise that isn't in `ALL_EXERCISES`. Checks the real
+  catalog (case-insensitive), then existing `custom_lifts` rows, and only
+  calls the AI (one Groq `groqGenerateJSON` call) for a genuinely new name —
+  it classifies which muscles it trains and its `ExerciseKind` (so the
+  muscle-rank engine judges the weight fairly — see `KIND_BASELINE` in
+  `muscleRank.ts`) plus a one-line difficulty note shown back to the user.
+  A new submission is `status: "pending"` and usable ONLY by the user who
+  typed it (`custom_lifts_select` RLS policy: visible if `status =
+  'approved'` or you're the submitter) until a developer approves or denies
+  it on `/dev` (`/api/admin/custom-lifts`, service-role, bypasses RLS) —
+  approval is what makes it part of EVERYONE's catalog; denial just blocks
+  that exact name from being resubmitted. `computeMuscleRank`/
+  `computeAllMuscleRanks` take an optional `extraCatalog` array so a visible
+  custom lift's logged sets count toward its muscle's rank exactly like a
+  catalog lift — `/api/muscle-rank` fetches the user's visible `custom_lifts`
+  rows and passes them in. The developer gets a notification on every new
+  submission; the submitter gets one when their lift is approved or denied.
+- **Catalog `kind` accuracy** (`ALL_EXERCISES` dedup in `trainingSplits.ts`):
+  the same exercise name can be defined more than once across different
+  splits/days — `Object.values(SPLITS)` iteration order means the LAST
+  definition silently wins, so if two call sites for the same name ever
+  disagree on `kind`, only one takes effect and it's easy to not notice.
+  Re-check with `grep -oP 'ex\("[^"]+",\s*"(heavy_compound|moderate_compound|isolation|core)"'
+  src/lib/trainingSplits.ts | sed -E 's/ex\("([^"]+)",\s*"([a-z_]+)"/\1\t\2/' | sort -u | cut -f1
+  | sort | uniq -d` after adding exercises to catch a repeated name with a
+  conflicting `kind` early. Also, `kind` should reflect realistic strength
+  standards for THAT specific movement, not just "barbell = heavy_compound" —
+  overhead presses (standing/seated) and upright rows were previously
+  over-tagged (heavy_compound / moderate_compound) relative to how little
+  most lifters can realistically load them, which made shoulders feel
+  impossible to rank up without ego-lifting; they're now moderate_compound /
+  isolation respectively, consistent with the other shoulder-press and
+  lateral/rear-delt isolation entries.
 - **Dev page** (`/dev`, `/api/admin/users`): a 7th nav tab that only appears in
   developer mode (`lf_admin` cookie; BottomNav checks `/api/admin/status` and
   listens for `DEV_MODE_EVENT` from Settings). Lists every profile (newest

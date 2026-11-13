@@ -6,6 +6,8 @@ import Avatar from "@/components/Avatar";
 import UserName from "@/components/UserName";
 import { rankMeta } from "@/lib/rank";
 import { getDevSeen, setDevSeen } from "@/lib/devSeen";
+import { MUSCLE_LABELS, type MuscleGroup } from "@/lib/trainingSplits";
+import type { CustomLift } from "@/lib/types";
 
 interface DevUser {
   user_id: string;
@@ -66,6 +68,14 @@ export default function DevPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  // "Type your lift" approval queue — AI-classified lifts a user typed in
+  // that aren't in the fixed catalog yet. Loaded once on mount (and
+  // refreshed after approve/deny) rather than on the 20s user-list poll —
+  // this list changes far less often, so there's no reason to re-fetch it
+  // that often.
+  const [customLifts, setCustomLifts] = useState<CustomLift[] | null>(null);
+  const [customBusyId, setCustomBusyId] = useState<string | null>(null);
+  const [customMsg, setCustomMsg] = useState<string | null>(null);
   const knownIds = useRef<Set<string> | null>(null);
   const baselineTaken = useRef(false);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -115,8 +125,20 @@ export default function DevPage() {
     }
   }, []);
 
+  const loadCustomLifts = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/custom-lifts", { cache: "no-store" });
+      if (!res.ok) return; // locked/error — the main users load() above already surfaces that
+      const body = await res.json();
+      setCustomLifts((body.items ?? []) as CustomLift[]);
+    } catch {
+      // Not critical — the rest of the page still works without this list.
+    }
+  }, []);
+
   useEffect(() => {
     const first = setTimeout(load, 0);
+    const firstCustom = setTimeout(loadCustomLifts, 0);
     const t = setInterval(() => {
       if (document.visibilityState === "visible") load();
     }, POLL_MS);
@@ -126,11 +148,35 @@ export default function DevPage() {
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       clearTimeout(first);
+      clearTimeout(firstCustom);
       clearInterval(t);
       document.removeEventListener("visibilitychange", onVisible);
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [load]);
+  }, [load, loadCustomLifts]);
+
+  async function runCustomLiftAction(c: CustomLift, action: "approve" | "deny") {
+    setCustomBusyId(`${c.id}:${action}`);
+    setCustomMsg(null);
+    try {
+      const res = await fetch(`/api/admin/custom-lifts/${c.id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setCustomMsg(body.error || "That didn't work");
+        return;
+      }
+      setCustomMsg(action === "approve" ? `Approved "${c.name}" — it's in everyone's catalog now` : `Denied "${c.name}"`);
+      await loadCustomLifts();
+    } catch {
+      setCustomMsg("Couldn't reach the server");
+    } finally {
+      setCustomBusyId(null);
+    }
+  }
 
   async function runAction(u: DevUser, action: UserAction, confirmText?: string) {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -201,6 +247,57 @@ export default function DevPage() {
       )}
 
       {error && !locked && <p className="mt-4 text-sm text-red-400">{error}</p>}
+
+      {!locked && customLifts && customLifts.filter((c) => c.status === "pending").length > 0 && (
+        <div className="mt-6 rounded-2xl border border-[#1f1f23] bg-[#0d0d0f]">
+          <div className="flex items-center justify-between px-4 pt-3.5">
+            <p className="text-sm font-semibold text-[#e4e4e7]">
+              🏋️ Lifts to review
+              <span className="ml-1.5 rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300">
+                {customLifts.filter((c) => c.status === "pending").length}
+              </span>
+            </p>
+          </div>
+          <p className="px-4 pb-3 pt-0.5 text-[11px] text-[#71717a]">
+            Typed in by a user, classified by AI. Approve to add it to EVERYONE&apos;s lift list — deny to keep it off, without affecting
+            the person who logged it (it stays theirs either way).
+          </p>
+          <div className="divide-y divide-[#1a1a1d] border-t border-[#1a1a1d]">
+            {customLifts
+              .filter((c) => c.status === "pending")
+              .map((c) => {
+                const busy = (a: "approve" | "deny") => customBusyId === `${c.id}:${a}`;
+                return (
+                  <div key={c.id} className="px-4 py-3">
+                    <p className="text-sm font-medium text-[#f4f4f5]">{c.name}</p>
+                    <p className="mt-0.5 text-[11px] text-[#71717a]">
+                      {c.muscles.map((m) => MUSCLE_LABELS[m as MuscleGroup] ?? m).join(", ")} · {c.kind.replace("_", " ")}
+                      {c.created_by_username ? ` · by @${c.created_by_username}` : ""}
+                    </p>
+                    {c.difficulty_note && <p className="mt-1 text-[11px] text-[#a1a1aa]">{c.difficulty_note}</p>}
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => runCustomLiftAction(c, "approve")}
+                        disabled={!!customBusyId}
+                        className="rounded-lg border border-emerald-500/50 px-3 py-2 text-xs font-semibold text-emerald-300 disabled:opacity-50"
+                      >
+                        {busy("approve") ? "…" : "Approve for everyone"}
+                      </button>
+                      <button
+                        onClick={() => runCustomLiftAction(c, "deny")}
+                        disabled={!!customBusyId}
+                        className="rounded-lg border border-red-500/50 px-3 py-2 text-xs font-semibold text-red-300 disabled:opacity-50"
+                      >
+                        {busy("deny") ? "…" : "Deny"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+          </div>
+          {customMsg && <p className="px-4 py-2.5 text-center text-xs text-zinc-400">{customMsg}</p>}
+        </div>
+      )}
 
       {!locked && !users && !error && <p className="mt-8 text-center text-sm text-zinc-500">Loading users…</p>}
 

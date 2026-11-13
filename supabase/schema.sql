@@ -1065,3 +1065,52 @@ begin
   return new;
 end;
 $$ language plpgsql security definer;
+
+-- Custom (user-typed) lifts: "type your lift" on /fitness, for an exercise
+-- that isn't in the static ALL_EXERCISES catalog. An AI call (see
+-- src/lib/classifyLift.ts) classifies which muscles it trains, how hard a
+-- lift it is (its ExerciseKind, for the muscle-rank baseline), and a short
+-- note on what counts as a good weight for it. The lift is usable by the
+-- person who typed it right away (status 'pending', scoped to created_by)
+-- but only becomes everyone's catalog entry once the developer approves it
+-- on /dev — one bad or duplicate classification never corrupts the shared
+-- list, and it never affects anyone else's account before that review.
+create table if not exists public.custom_lifts (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  -- Lowercased/trimmed, for case-insensitive de-dup across users (two people
+  -- typing "Bayesian Curls" / "bayesian curls" should hit the same row).
+  normalized_name text not null unique,
+  kind text not null,
+  muscles text[] not null,
+  -- The AI's one-line read on how hard this lift is, e.g. "Bayesian curls
+  -- are a difficult single-joint isolation move — even 10-15lb is a solid,
+  -- not weak, working weight." Shown to the person who typed it.
+  difficulty_note text,
+  status text not null default 'pending',
+  created_by uuid not null references auth.users(id) on delete cascade,
+  created_by_username text,
+  reviewed_by uuid references auth.users(id) on delete set null,
+  reviewed_at timestamptz,
+  created_at timestamptz not null default now(),
+  constraint custom_lifts_status_check check (status in ('pending', 'approved', 'denied'))
+);
+create index if not exists custom_lifts_status_idx on public.custom_lifts (status, created_at desc);
+create index if not exists custom_lifts_created_by_idx on public.custom_lifts (created_by);
+
+alter table public.custom_lifts enable row level security;
+
+-- Visible to everyone once approved (so it shows up in anyone's lift
+-- picker); otherwise only to the person who submitted it, so a pending or
+-- denied classification never leaks into someone else's account.
+drop policy if exists "custom_lifts_select" on public.custom_lifts;
+create policy "custom_lifts_select" on public.custom_lifts
+  for select using (status = 'approved' or auth.uid() = created_by);
+
+-- Anyone signed in can submit a new custom lift, only as themselves.
+-- Approve/deny is done with the service-role client from the developer-only
+-- /api/admin/custom-lifts route, which bypasses RLS entirely — there's no
+-- ordinary-user update policy here on purpose.
+drop policy if exists "custom_lifts_insert" on public.custom_lifts;
+create policy "custom_lifts_insert" on public.custom_lifts
+  for insert with check (auth.uid() = created_by);

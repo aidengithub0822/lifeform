@@ -101,12 +101,29 @@ function countQualifyingDays(scoresByDay: Map<string, number>, minScore: number)
   return count;
 }
 
+// The minimal shape a custom (user-typed, AI-classified) lift needs to slot
+// into this entire scoring pipeline — see src/app/api/lifts/custom/route.ts
+// and classifyLift.ts. Nothing else in this file ever reads more than
+// `kind`/`muscles` off a catalog entry, so this is deliberately narrower
+// than the full SplitExercise shape.
+export interface CatalogEntryForRank {
+  name: string;
+  kind: ExerciseKind;
+  muscles: MuscleGroup[];
+}
+
 export function computeMuscleRank(
   muscle: MuscleGroup,
   lifts: LiftForRank[],
-  bodyweightLb: number | null
+  bodyweightLb: number | null,
+  extraCatalog: CatalogEntryForRank[] = []
 ): MuscleRankResult {
-  const catalogByName = new Map(ALL_EXERCISES.map((e) => [e.name, e]));
+  const catalogByName = new Map<string, CatalogEntryForRank>(ALL_EXERCISES.map((e) => [e.name, e]));
+  // Approved/pending-own custom lifts layer on top — a static-catalog name
+  // always wins if it somehow collides, since that's the known-good entry.
+  for (const entry of extraCatalog) {
+    if (!catalogByName.has(entry.name)) catalogByName.set(entry.name, entry);
+  }
   // Warm-ups are explicitly NOT hypertrophy working sets — they must never
   // count toward a muscle's score or qualifying-day total.
   const relevant = lifts.filter((l) => !l.is_warmup && catalogByName.get(l.lift_name)?.muscles.includes(muscle));
@@ -220,9 +237,10 @@ export function computeMuscleRank(
 export function computeAllMuscleRanks(
   muscles: MuscleGroup[],
   lifts: LiftForRank[],
-  bodyweightLb: number | null
+  bodyweightLb: number | null,
+  extraCatalog: CatalogEntryForRank[] = []
 ): MuscleRankResult[] {
-  return muscles.map((m) => computeMuscleRank(m, lifts, bodyweightLb));
+  return muscles.map((m) => computeMuscleRank(m, lifts, bodyweightLb, extraCatalog));
 }
 
 // ---- Rank Calculator helpers -----------------------------------------

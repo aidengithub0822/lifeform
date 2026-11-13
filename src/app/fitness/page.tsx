@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
+import { CATEGORIES, MUSCLE_TO_CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
 import { LIFT_SUBSECTIONS, resolveSubsection } from "@/lib/liftBrowser";
 import {
   SPLITS,
@@ -11,9 +11,10 @@ import {
   MUSCLE_LABELS,
   type SplitExercise,
   type MuscleGroup,
+  type ExerciseKind,
 } from "@/lib/trainingSplits";
 import { explainPrescription, type MuscleWeeklyVolume } from "@/lib/hypertrophyEngine";
-import type { TrainingPlan, Lift } from "@/lib/types";
+import type { TrainingPlan, Lift, CustomLift } from "@/lib/types";
 import XpSparkToast from "@/components/XpSparkToast";
 import MuscleMapOverlay from "@/components/MuscleMapOverlay";
 import RankCalculator from "@/components/RankCalculator";
@@ -56,9 +57,12 @@ interface MuscleRankApiResult {
 function LogSetForm({
   exercise,
   onLogged,
+  custom,
 }: {
   exercise: SplitExercise;
   onLogged: (lift: Lift) => void;
+  /** True when `exercise` is a synthesized stand-in for a custom (user-typed) lift — posts to /api/lifts/custom instead of /api/lifts. */
+  custom?: boolean;
 }) {
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
@@ -82,11 +86,11 @@ function LogSetForm({
 
     setSaving(true);
     try {
-      const res = await fetch("/api/lifts", {
+      const res = await fetch(custom ? "/api/lifts/custom" : "/api/lifts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          lift_name: exercise.name,
+          ...(custom ? { name: exercise.name } : { lift_name: exercise.name }),
           weight_lb: weightLb,
           reps: repsN,
           sets: setsN,
@@ -187,6 +191,160 @@ function LogSetForm({
   );
 }
 
+// "Type your lift" — for an exercise that isn't in the fixed catalog. One
+// submit does three things at once: logs the set, has the AI classify the
+// lift (muscles + difficulty) if this is a brand-new name, and — if it's
+// new — queues it on /dev for a developer to approve into everyone's
+// catalog. Kept as its own small component (rather than bolted onto
+// LogSetForm) since it owns an extra field (the name) and a different kind
+// of success message.
+function CustomLiftForm({
+  onLogged,
+  onCancel,
+}: {
+  onLogged: (customLift: { name: string; kind: ExerciseKind; muscles: MuscleGroup[]; status: string; difficultyNote: string | null }, lift: Lift) => void;
+  onCancel: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [weight, setWeight] = useState("");
+  const [reps, setReps] = useState("");
+  const [sets, setSets] = useState("3");
+  const [rir, setRir] = useState("");
+  const [isWarmup, setIsWarmup] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [result, setResult] = useState<{ status: string; difficultyNote: string | null; name: string } | null>(null);
+
+  async function submit() {
+    setError(null);
+    const trimmed = name.trim();
+    const weightLb = Number(weight);
+    const repsN = Number(reps);
+    const setsN = Number(sets);
+    const rirN = rir.trim() === "" ? null : Number(rir);
+    if (!trimmed) return setError("Type the name of the lift");
+    if (!Number.isFinite(weightLb) || weightLb < 0) return setError("Enter a valid weight");
+    if (!Number.isInteger(repsN) || repsN <= 0) return setError("Enter a valid rep count");
+    if (!Number.isInteger(setsN) || setsN <= 0) return setError("Enter a valid set count");
+    if (rirN != null && (!Number.isFinite(rirN) || rirN < 0 || rirN > 10)) return setError("RIR should be between 0 and 10");
+
+    setSaving(true);
+    try {
+      const res = await fetch("/api/lifts/custom", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: trimmed, weight_lb: weightLb, reps: repsN, sets: setsN, rir: rirN, is_warmup: isWarmup }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body.error ?? "Couldn't save that lift");
+        return;
+      }
+      setResult({ status: body.customLift.status, difficultyNote: body.customLift.difficultyNote, name: body.customLift.name });
+      if (body.lift) onLogged(body.customLift, body.lift as Lift);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (result) {
+    return (
+      <div className="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-300">
+        <p className="font-medium">
+          Logged &ldquo;{result.name}&rdquo; ✓{" "}
+          {result.status === "pending"
+            ? "— added to your lifts, and sent to the dev page for approval before it joins everyone's."
+            : result.status === "approved"
+              ? "— already in everyone's catalog."
+              : ""}
+        </p>
+        {result.difficultyNote && <p className="mt-1 text-emerald-300/80">{result.difficultyNote}</p>}
+        <button onClick={onCancel} className="mt-2 rounded-full border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold">
+          Done
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-xl border border-[#1f1f23] bg-[#0d0d0f] p-3">
+      <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Exercise name</label>
+      <input
+        autoFocus
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="e.g. Bayesian curls"
+        className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+      />
+      <p className="mt-1.5 text-[11px] text-[#71717a]">
+        Not on the list? The AI will figure out which muscle it trains and how hard it is — just this once per new name.
+      </p>
+      <div className="mt-2.5 grid grid-cols-4 gap-2">
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Weight (lb)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            value={weight}
+            onChange={(e) => setWeight(e.target.value)}
+            placeholder="15"
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Reps</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={reps}
+            onChange={(e) => setReps(e.target.value)}
+            placeholder="10"
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">Sets</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={sets}
+            onChange={(e) => setSets(e.target.value)}
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] font-medium uppercase tracking-wide text-[#71717a]">RIR</label>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={rir}
+            onChange={(e) => setRir(e.target.value)}
+            placeholder="2"
+            className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
+          />
+        </div>
+      </div>
+      <label className="mt-2.5 flex items-center gap-2 text-xs text-[#a1a1aa]">
+        <input type="checkbox" checked={isWarmup} onChange={(e) => setIsWarmup(e.target.checked)} className="h-3.5 w-3.5 accent-emerald-500" />
+        This was a warm-up set
+      </label>
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      <div className="mt-2.5 flex gap-2">
+        <button onClick={onCancel} className="rounded-lg border border-[#27272a] px-3 py-2 text-xs font-semibold text-zinc-300">
+          Cancel
+        </button>
+        <button
+          onClick={submit}
+          disabled={saving}
+          className="flex-1 rounded-lg bg-emerald-500 py-2 text-xs font-semibold text-black disabled:opacity-60"
+        >
+          {saving ? "Classifying & saving..." : "Log set"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function FitnessPage() {
   const [sex, setSex] = useState<Sex>("male");
   const [category, setCategory] = useState<MuscleCategory | null>(null);
@@ -214,6 +372,12 @@ export default function FitnessPage() {
   const [showLifts, setShowLifts] = useState(false);
   const [showCalculator, setShowCalculator] = useState(false);
   const [bodyweightLb, setBodyweightLb] = useState<number | null>(null);
+  // Custom (user-typed, AI-classified) lifts visible to this account —
+  // everyone's approved ones plus this user's own still-pending submissions.
+  // Fetched once on mount; a freshly-logged new one is appended locally so
+  // it shows up immediately without a round trip.
+  const [customLifts, setCustomLifts] = useState<CustomLift[]>([]);
+  const [showCustomForm, setShowCustomForm] = useState<string | null>(null);
 
   useEffect(() => {
 
@@ -228,6 +392,7 @@ export default function FitnessPage() {
     refreshMuscleRanks();
     refreshRankSummary();
     loadHistory();
+    loadCustomLifts();
 
     // Default the body-view toggle to whatever the user told onboarding
     // (Set your targets -> Sex) rather than always starting on "male" — the
@@ -262,6 +427,41 @@ export default function FitnessPage() {
     } catch {
       // Highlighting is a nicety — the lists still work without it.
     }
+  }
+
+  async function loadCustomLifts() {
+    try {
+      const res = await fetch("/api/lifts/custom");
+      if (!res.ok) return;
+      const body = await res.json();
+      setCustomLifts((body.items ?? []) as CustomLift[]);
+    } catch {
+      // The "type your lift" shortcut still works without this — it just
+      // won't show previously-added custom lifts as browsable rows yet.
+    }
+  }
+
+  // Turns a custom-lift row into the minimal SplitExercise shape LogSetForm
+  // needs to render a row — only `kind`/`muscles`/`name` are ever read for a
+  // custom lift's logic; the rest are display-only placeholders.
+  function customLiftAsExercise(c: CustomLift): SplitExercise {
+    return {
+      name: c.name,
+      kind: c.kind as ExerciseKind,
+      sets: 3,
+      repRange: "8-12",
+      repRangeMin: 8,
+      repRangeMax: 12,
+      cue: "",
+      muscles: c.muscles as MuscleGroup[],
+      muscleShares: [],
+      stability: "moderate",
+      fatigueCost: "moderate",
+      lengthenedLoading: false,
+      failureRir: [1, 3],
+      progressionFriendly: true,
+      equipment: "dumbbell",
+    };
   }
 
   async function refreshMuscleRanks() {
@@ -568,6 +768,97 @@ export default function FitnessPage() {
                 </div>
               );
             })}
+
+            {(() => {
+              const custom = customLifts.filter((c) => MUSCLE_TO_CATEGORIES[c.muscles[0] as MuscleGroup]?.includes(category));
+              if (custom.length === 0) return null;
+              const subKey = `${category}:custom`;
+              const isSubOpen = openSub === subKey;
+              return (
+                <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
+                  <button
+                    onClick={() => {
+                      setOpenSub(isSubOpen ? null : subKey);
+                      setOpenExercise(null);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-zinc-100">Your added lifts</p>
+                      <p className="mt-0.5 text-[11px] text-[#71717a]">{custom.length} typed in by you</p>
+                    </div>
+                    <span className="shrink-0 text-[#52525b]">{isSubOpen ? "︿" : "﹀"}</span>
+                  </button>
+                  {isSubOpen && (
+                    <div className="border-t border-zinc-800 px-4 pb-1">
+                      {custom.map((c) => {
+                        const exercise = customLiftAsExercise(c);
+                        const key = `${subKey}:${c.name}`;
+                        const isOpen = openExercise === key;
+                        const isLogged = loggedNames.has(c.name);
+                        return (
+                          <div key={key} className="border-b border-[#1a1a1d] py-3 last:border-0">
+                            <button onClick={() => setOpenExercise(isOpen ? null : key)} className="flex w-full items-center gap-2 text-left">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-medium text-[#f4f4f5]">{c.name}</p>
+                                <p className="mt-0.5 text-xs text-[#71717a]">
+                                  {c.status === "pending" ? "Pending dev approval · " : ""}
+                                  {c.muscles.map((m) => MUSCLE_LABELS[m as MuscleGroup]).join(", ")}
+                                </p>
+                              </div>
+                              {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
+                              <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
+                            </button>
+                            {isOpen && <LogSetForm exercise={exercise} custom onLogged={() => markLogged(c.name)} />}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="overflow-hidden rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40">
+              {showCustomForm === category ? (
+                <div className="px-4 py-3.5">
+                  <CustomLiftForm
+                    onLogged={(customLift, lift) => {
+                      setCustomLifts((prev) => {
+                        if (prev.some((c) => c.name.toLowerCase() === customLift.name.toLowerCase())) return prev;
+                        return [
+                          ...prev,
+                          {
+                            id: lift.id,
+                            name: customLift.name,
+                            normalized_name: customLift.name.toLowerCase(),
+                            kind: customLift.kind,
+                            muscles: customLift.muscles,
+                            difficulty_note: customLift.difficultyNote,
+                            status: customLift.status as CustomLift["status"],
+                            created_by: lift.user_id,
+                            created_by_username: null,
+                            reviewed_by: null,
+                            reviewed_at: null,
+                            created_at: lift.logged_at,
+                          },
+                        ];
+                      });
+                      markLogged(customLift.name);
+                    }}
+                    onCancel={() => setShowCustomForm(null)}
+                  />
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowCustomForm(category)}
+                  className="w-full px-4 py-3.5 text-left text-sm font-medium text-emerald-400"
+                >
+                  ＋ Can&apos;t find your lift? Type it in
+                </button>
+              )}
+            </div>
+
             <button
               onClick={logWorkout}
               disabled={logging || logged}

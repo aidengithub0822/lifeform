@@ -2,7 +2,27 @@
 // No AI/DB call needed here — this is a fixed reference list, fast and free
 // to render, matched against the labels on the body diagrams.
 
+import type { MuscleGroup } from "@/lib/trainingSplits";
+
 export type MuscleCategory = "chest" | "back" | "shoulders" | "arms" | "legs" | "abs";
+
+// Which browser tab(s) a given (granular, 11-value) MuscleGroup shows up
+// under — used to file a custom (user-typed, AI-classified) lift into the
+// right category tab(s) on /fitness, since custom lifts carry MuscleGroups
+// straight from the AI classifier, not a MuscleCategory.
+export const MUSCLE_TO_CATEGORIES: Record<MuscleGroup, MuscleCategory[]> = {
+  chest: ["chest"],
+  back: ["back"],
+  traps: ["back"],
+  shoulders: ["shoulders"],
+  biceps: ["arms"],
+  triceps: ["arms"],
+  abs: ["abs"],
+  glutes: ["legs"],
+  quads: ["legs"],
+  hamstrings: ["legs"],
+  calves: ["legs"],
+};
 
 export interface Exercise {
   name: string;

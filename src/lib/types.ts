@@ -86,6 +86,24 @@ export interface LiftMuscle {
   muscle_group: string;
 }
 
+// A user-typed lift the AI classified (see src/lib/classifyLift.ts) — not in
+// the static ALL_EXERCISES catalog. Usable immediately by created_by only
+// ("pending"); everyone's catalog once a developer approves it on /dev.
+export interface CustomLift {
+  id: string;
+  name: string;
+  normalized_name: string;
+  kind: string;
+  muscles: string[];
+  difficulty_note: string | null;
+  status: "pending" | "approved" | "denied";
+  created_by: string;
+  created_by_username: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+}
+
 export type TrainingGoal = "build_muscle" | "get_stronger" | "lose_fat" | "general_fitness";
 export type SplitType = "upper_lower" | "ppl" | "bro_split" | "fbeod";
 

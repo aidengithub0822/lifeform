@@ -246,7 +246,7 @@ export const SPLITS: Record<SplitDefinition["key"], SplitDefinition> = {
         label: "Upper A",
         exercises: [
           ex("Barbell bench press", "heavy_compound", 2, "5-8", ["chest", "shoulders", "triceps"]),
-          ex("Barbell row", "heavy_compound", 2, "6-8", ["back", "biceps", "traps"]),
+          ex("Barbell row", "moderate_compound", 2, "6-8", ["back", "biceps", "traps"]),
           ex("Seated overhead press", "moderate_compound", 1, "8-10", ["shoulders", "triceps"]),
           ex("Lat pulldown", "moderate_compound", 1, "8-10", ["back", "biceps"]),
           ex("Cable lateral raise", "isolation", 1, "12-15", ["shoulders"]),
@@ -338,8 +338,8 @@ export const SPLITS: Record<SplitDefinition["key"], SplitDefinition> = {
         label: "Push",
         exercises: [
           ex("Barbell bench press", "heavy_compound", 2, "5-8", ["chest", "shoulders", "triceps"]),
-          ex("Seated overhead press", "heavy_compound", 1, "6-8", ["shoulders", "triceps"]),
-          ex("Incline dumbbell press", "moderate_compound", 1, "8-10", ["chest", "shoulders"], {
+          ex("Seated overhead press", "moderate_compound", 1, "6-8", ["shoulders", "triceps"]),
+          ex("Incline dumbbell press", "heavy_compound", 1, "8-10", ["chest", "shoulders"], {
             lengthenedLoading: true,
             lengthenedNote: "The incline angle loads the upper chest at a longer stretch at the bottom.",
           }),
@@ -436,7 +436,7 @@ export const SPLITS: Record<SplitDefinition["key"], SplitDefinition> = {
           }),
           ex("Pull-ups / lat pulldown", "heavy_compound", 3, "6-10", ["back", "biceps"]),
           ex("Barbell row", "moderate_compound", 3, "8-10", ["back", "biceps"]),
-          ex("Seated cable row", "isolation", 2, "10-12", ["back", "biceps"]),
+          ex("Seated cable row", "moderate_compound", 2, "10-12", ["back", "biceps"]),
           ex("Face pulls", "isolation", 2, "15-20", ["shoulders", "traps"]),
         ],
       },
@@ -444,7 +444,7 @@ export const SPLITS: Record<SplitDefinition["key"], SplitDefinition> = {
         key: "shoulders",
         label: "Shoulders",
         exercises: [
-          ex("Seated overhead press", "heavy_compound", 3, "6-8", ["shoulders", "triceps"]),
+          ex("Seated overhead press", "moderate_compound", 3, "6-8", ["shoulders", "triceps"]),
           ex("Cable lateral raise", "isolation", 3, "12-15", ["shoulders"]),
           ex("Rear delt fly", "isolation", 2, "15-20", ["shoulders"]),
           ex("Arnold press", "moderate_compound", 2, "8-10", ["shoulders", "triceps"]),
@@ -676,7 +676,7 @@ const EXTRA_EXERCISES: SplitExercise[] = [
   ex("Chin-ups", "heavy_compound", 2, "6-10", ["back", "biceps"]),
   ex("Close-grip lat pulldown", "moderate_compound", 1, "8-12", ["back", "biceps"]),
   ex("Neutral-grip lat pulldown", "moderate_compound", 1, "8-12", ["back", "biceps"]),
-  ex("Pendlay row", "heavy_compound", 2, "5-8", ["back", "biceps", "traps"]),
+  ex("Pendlay row", "moderate_compound", 2, "5-8", ["back", "biceps", "traps"]),
   ex("Machine row", "moderate_compound", 1, "8-12", ["back", "biceps"], { failureRir: STABLE_MACHINE_RIR }),
   ex("Inverted row", "moderate_compound", 1, "8-15", ["back", "biceps"]),
   ex("Barbell shrug", "isolation", 1, "10-15", ["traps"]),
@@ -684,11 +684,11 @@ const EXTRA_EXERCISES: SplitExercise[] = [
   ex("Back extension", "isolation", 1, "10-15", ["back", "glutes", "hamstrings"]),
   ex("Good morning", "moderate_compound", 1, "8-10", ["hamstrings", "back", "glutes"], { failureRir: HIP_HINGE_RIR }),
   // Shoulders
-  ex("Standing overhead press", "heavy_compound", 2, "5-8", ["shoulders", "triceps"]),
+  ex("Standing overhead press", "moderate_compound", 2, "5-8", ["shoulders", "triceps"]),
   ex("Dumbbell shoulder press", "moderate_compound", 1, "8-10", ["shoulders", "triceps"]),
   ex("Front raise", "isolation", 1, "12-15", ["shoulders"]),
   ex("Machine lateral raise", "isolation", 1, "12-15", ["shoulders"], { failureRir: STABLE_MACHINE_RIR }),
-  ex("Upright row", "moderate_compound", 1, "10-12", ["shoulders", "traps"]),
+  ex("Upright row", "isolation", 1, "10-12", ["shoulders", "traps"]),
   ex("Reverse pec deck", "isolation", 1, "12-20", ["shoulders"]),
   ex("Cable rear delt fly", "isolation", 1, "12-20", ["shoulders"]),
   // Arms
