@@ -377,7 +377,7 @@ export default function FitnessPage() {
   // Fetched once on mount; a freshly-logged new one is appended locally so
   // it shows up immediately without a round trip.
   const [customLifts, setCustomLifts] = useState<CustomLift[]>([]);
-  const [showCustomForm, setShowCustomForm] = useState<string | null>(null);
+  const [showCustomForm, setShowCustomForm] = useState(false);
 
   useEffect(() => {
 
@@ -670,7 +670,48 @@ export default function FitnessPage() {
       <section className="mt-8">
         <h2 className="text-sm font-semibold text-zinc-200">Log a lift</h2>
         <p className="mt-0.5 text-xs text-[#71717a]">Pick a muscle group, then a muscle, then tap an exercise to log it.</p>
-        <div className="mt-3 grid grid-cols-3 gap-2.5">
+
+        <div className="mt-3 overflow-hidden rounded-2xl border border-dashed border-emerald-500/40 bg-emerald-500/[0.06]">
+          {showCustomForm ? (
+            <div className="px-4 py-3.5">
+              <CustomLiftForm
+                onLogged={(customLift, lift) => {
+                  setCustomLifts((prev) => {
+                    if (prev.some((c) => c.name.toLowerCase() === customLift.name.toLowerCase())) return prev;
+                    return [
+                      ...prev,
+                      {
+                        id: lift.id,
+                        name: customLift.name,
+                        normalized_name: customLift.name.toLowerCase(),
+                        kind: customLift.kind,
+                        muscles: customLift.muscles,
+                        difficulty_note: customLift.difficultyNote,
+                        status: customLift.status as CustomLift["status"],
+                        created_by: lift.user_id,
+                        created_by_username: null,
+                        reviewed_by: null,
+                        reviewed_at: null,
+                        created_at: lift.logged_at,
+                      },
+                    ];
+                  });
+                  markLogged(customLift.name);
+                }}
+                onCancel={() => setShowCustomForm(false)}
+              />
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowCustomForm(true)}
+              className="animate-[lf-breathe_2.6s_ease-in-out_infinite] flex w-full items-center justify-center gap-2 px-4 py-3.5 text-center text-sm font-semibold text-emerald-300"
+            >
+              ＋ Can&apos;t find your lift? Type it in
+            </button>
+          )}
+        </div>
+
+        <div className="mt-4 grid grid-cols-3 gap-2.5">
           {CATEGORIES.map((c) => (
             <button
               key={c.key}
@@ -818,46 +859,6 @@ export default function FitnessPage() {
                 </div>
               );
             })()}
-
-            <div className="overflow-hidden rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40">
-              {showCustomForm === category ? (
-                <div className="px-4 py-3.5">
-                  <CustomLiftForm
-                    onLogged={(customLift, lift) => {
-                      setCustomLifts((prev) => {
-                        if (prev.some((c) => c.name.toLowerCase() === customLift.name.toLowerCase())) return prev;
-                        return [
-                          ...prev,
-                          {
-                            id: lift.id,
-                            name: customLift.name,
-                            normalized_name: customLift.name.toLowerCase(),
-                            kind: customLift.kind,
-                            muscles: customLift.muscles,
-                            difficulty_note: customLift.difficultyNote,
-                            status: customLift.status as CustomLift["status"],
-                            created_by: lift.user_id,
-                            created_by_username: null,
-                            reviewed_by: null,
-                            reviewed_at: null,
-                            created_at: lift.logged_at,
-                          },
-                        ];
-                      });
-                      markLogged(customLift.name);
-                    }}
-                    onCancel={() => setShowCustomForm(null)}
-                  />
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowCustomForm(category)}
-                  className="w-full px-4 py-3.5 text-left text-sm font-medium text-emerald-400"
-                >
-                  ＋ Can&apos;t find your lift? Type it in
-                </button>
-              )}
-            </div>
 
             <button
               onClick={logWorkout}

@@ -201,6 +201,24 @@ body {
   }
 }
 
+/* A slow, subtle scale "breathing" pulse — for a single entry point that
+   needs to read as inviting/tappable without being a loud attention-grab
+   (the "type your lift" button on /fitness, src/app/fitness/page.tsx). */
+@keyframes lf-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.025);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[lf-breathe_2\.6s_ease-in-out_infinite\] {
+    animation: none;
+  }
+}
+
 /* === Decorative page background (src/components/GeometricBackground.tsx) ===
    Deep black canvas with large asymmetrical dark panels and a soft glowing
    edge, fixed behind the whole app. z-index -1 so it paints after the root
