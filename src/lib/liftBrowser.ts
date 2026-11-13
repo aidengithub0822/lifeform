@@ -12,7 +12,7 @@
 // catalog is unreachable from the browser.
 
 import { CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
-import { ALL_EXERCISES, type SplitExercise } from "@/lib/trainingSplits";
+import { ALL_EXERCISES, type SplitExercise, type MuscleGroup } from "@/lib/trainingSplits";
 
 export interface LiftSubsection {
   key: string;
@@ -281,6 +281,40 @@ export function unlistedExercises(): SplitExercise[] {
     for (const sub of subs) for (const n of sub.names) listed.add(n);
   }
   return ALL_EXERCISES.filter((e) => !listed.has(e.name));
+}
+
+// Where a custom (AI-classified, "type your lift") exercise lands inside an
+// already-rendered category — so it shows up as a normal row in the right
+// existing sub-section (Biceps, Traps, Quads, ...) instead of a separate
+// "Your added lifts" bucket. Most granular MuscleGroups map to exactly one
+// sub-section key already; chest/back/shoulders/abs split further than a
+// single "which muscle" answer resolves (upper vs. mid vs. lower chest,
+// etc.), so those fall back to that category's most general sub.
+const MUSCLE_SUBSECTION_KEY: Partial<Record<MuscleGroup, string>> = {
+  biceps: "biceps",
+  triceps: "triceps",
+  traps: "traps",
+  quads: "quads",
+  glutes: "glutes",
+  hamstrings: "hamstrings",
+  calves: "calves",
+};
+const CATEGORY_DEFAULT_SUB: Record<MuscleCategory, string> = {
+  chest: "mid",
+  back: "mid",
+  shoulders: "front",
+  arms: "biceps",
+  legs: "quads",
+  abs: "upper",
+};
+
+/** The LiftSubsection.key a custom lift belongs under within this category. */
+export function customLiftSubsectionKey(category: MuscleCategory, muscles: MuscleGroup[]): string {
+  for (const m of muscles) {
+    const key = MUSCLE_SUBSECTION_KEY[m];
+    if (key && LIFT_SUBSECTIONS[category].some((s) => s.key === key)) return key;
+  }
+  return CATEGORY_DEFAULT_SUB[category];
 }
 
 export { CATEGORIES };

@@ -421,6 +421,15 @@ addition at the bottom is re-runnable. The app degrades gracefully until then
   catalog lift — `/api/muscle-rank` fetches the user's visible `custom_lifts`
   rows and passes them in. The developer gets a notification on every new
   submission; the submitter gets one when their lift is approved or denied.
+  On `/fitness`, a custom lift renders as a normal row inside the correct
+  existing sub-section (Biceps, Traps, Quads, ...) — `customLiftSubsectionKey`
+  in `liftBrowser.ts` maps its muscles to a sub key, never a separate "Your
+  added lifts" bucket — and is outlined white only while `status: "pending"`
+  (the signal that it's visible to no one else yet); the outline disappears
+  once it's approved and the page re-fetches `/api/lifts/custom`. Typing a
+  name that resolves to an existing catalog or already-submitted custom lift
+  (`customLift.matchedExisting`) just logs it under its real name with a
+  plain confirmation — no AI call, no difficulty note, no "pending" copy.
 - **Catalog `kind` accuracy** (`ALL_EXERCISES` dedup in `trainingSplits.ts`):
   the same exercise name can be defined more than once across different
   splits/days — `Object.values(SPLITS)` iteration order means the LAST

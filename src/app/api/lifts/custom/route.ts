@@ -221,6 +221,6 @@ export async function POST(request: Request) {
 
   return NextResponse.json({
     lift,
-    customLift: { name: resolvedName, kind, muscles, status, difficultyNote },
+    customLift: { name: resolvedName, kind, muscles, status, difficultyNote, matchedExisting: !isNewSubmission },
   });
 }

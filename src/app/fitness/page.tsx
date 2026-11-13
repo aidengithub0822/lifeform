@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { CATEGORIES, MUSCLE_TO_CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
-import { LIFT_SUBSECTIONS, resolveSubsection } from "@/lib/liftBrowser";
+import { CATEGORIES, type MuscleCategory } from "@/lib/workoutCatalog";
+import { LIFT_SUBSECTIONS, resolveSubsection, customLiftSubsectionKey } from "@/lib/liftBrowser";
 import {
   SPLITS,
   currentDay,
@@ -202,7 +202,10 @@ function CustomLiftForm({
   onLogged,
   onCancel,
 }: {
-  onLogged: (customLift: { name: string; kind: ExerciseKind; muscles: MuscleGroup[]; status: string; difficultyNote: string | null }, lift: Lift) => void;
+  onLogged: (
+    customLift: { name: string; kind: ExerciseKind; muscles: MuscleGroup[]; status: string; difficultyNote: string | null; matchedExisting: boolean },
+    lift: Lift
+  ) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
@@ -213,7 +216,9 @@ function CustomLiftForm({
   const [isWarmup, setIsWarmup] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ status: string; difficultyNote: string | null; name: string } | null>(null);
+  const [result, setResult] = useState<{ status: string; difficultyNote: string | null; name: string; matchedExisting: boolean } | null>(
+    null
+  );
 
   async function submit() {
     setError(null);
@@ -240,7 +245,12 @@ function CustomLiftForm({
         setError(body.error ?? "Couldn't save that lift");
         return;
       }
-      setResult({ status: body.customLift.status, difficultyNote: body.customLift.difficultyNote, name: body.customLift.name });
+      setResult({
+        status: body.customLift.status,
+        difficultyNote: body.customLift.difficultyNote,
+        name: body.customLift.name,
+        matchedExisting: body.customLift.matchedExisting,
+      });
       if (body.lift) onLogged(body.customLift, body.lift as Lift);
     } finally {
       setSaving(false);
@@ -250,15 +260,22 @@ function CustomLiftForm({
   if (result) {
     return (
       <div className="mt-2 rounded-xl border border-emerald-900/40 bg-emerald-500/10 px-3 py-2.5 text-xs text-emerald-300">
-        <p className="font-medium">
-          Logged &ldquo;{result.name}&rdquo; ✓{" "}
-          {result.status === "pending"
-            ? "— added to your lifts, and sent to the dev page for approval before it joins everyone's."
-            : result.status === "approved"
-              ? "— already in everyone's catalog."
-              : ""}
-        </p>
-        {result.difficultyNote && <p className="mt-1 text-emerald-300/80">{result.difficultyNote}</p>}
+        {result.matchedExisting ? (
+          // Already on the list (catalog or a previously-approved custom
+          // lift) — just confirm it logged under its real name, no AI
+          // explanation to show since none ran.
+          <p className="font-medium">Logged to &ldquo;{result.name}&rdquo; ✓</p>
+        ) : (
+          <>
+            <p className="font-medium">
+              Logged &ldquo;{result.name}&rdquo; ✓{" "}
+              {result.status === "pending"
+                ? "— added to your lifts, and sent to the dev page for approval before it joins everyone's."
+                : "— already in everyone's catalog."}
+            </p>
+            {result.difficultyNote && <p className="mt-1 text-emerald-300/80">{result.difficultyNote}</p>}
+          </>
+        )}
         <button onClick={onCancel} className="mt-2 rounded-full border border-emerald-500/40 px-2.5 py-1 text-[11px] font-semibold">
           Done
         </button>
@@ -273,7 +290,7 @@ function CustomLiftForm({
         autoFocus
         value={name}
         onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. Bayesian curls"
+        placeholder="Exercise name"
         className="mt-1 w-full rounded-lg border border-[#27272a] bg-[#111113] px-2.5 py-2 text-sm outline-none focus:border-emerald-500"
       />
       <p className="mt-1.5 text-[11px] text-[#71717a]">
@@ -739,9 +756,19 @@ export default function FitnessPage() {
             {LIFT_SUBSECTIONS[category].map((sub) => {
               const subKey = `${category}:${sub.key}`;
               const isSubOpen = openSub === subKey;
+              // Custom (typed-in, AI-classified) lifts that belong in THIS
+              // sub-section — placed here by muscle, same as a catalog
+              // exercise, never in a separate bucket. Still pending (not
+              // yet dev-approved) is tracked per-name below so it can be
+              // outlined white: visible only to the person who typed it,
+              // until approval makes it look just like everything else.
+              const customHere = customLifts.filter(
+                (c) => customLiftSubsectionKey(category, c.muscles as MuscleGroup[]) === sub.key
+              );
+              const pendingCustomNames = new Set(customHere.filter((c) => c.status === "pending").map((c) => c.name));
               // Lifts you've logged before float to the top (most recent first),
               // then everything else in the catalog's own order.
-              const exercises = resolveSubsection(sub)
+              const exercises = [...resolveSubsection(sub), ...customHere.map(customLiftAsExercise)]
                 .map((exercise, idx) => ({ exercise, idx }))
                 .sort((a, b) => {
                   const ra = orderHistory.get(a.exercise.name);
@@ -779,11 +806,17 @@ export default function FitnessPage() {
                         const isOpen = openExercise === key;
                         const isLogged = loggedNames.has(exercise.name);
                         const remembered = history.has(exercise.name);
+                        const isCustom = customHere.some((c) => c.name === exercise.name);
+                        const isPendingCustom = pendingCustomNames.has(exercise.name);
                         return (
                           <div
                             key={key}
                             className={`border-b border-[#1a1a1d] last:border-0 ${
-                              remembered ? "-mx-4 border-l-2 border-l-emerald-500/60 bg-emerald-500/[0.07] px-[14px] py-3" : "py-3"
+                              isPendingCustom
+                                ? "-mx-4 rounded-lg border border-white/70 px-[14px] py-3"
+                                : remembered
+                                  ? "-mx-4 border-l-2 border-l-emerald-500/60 bg-emerald-500/[0.07] px-[14px] py-3"
+                                  : "py-3"
                             }`}
                           >
                             <button
@@ -792,15 +825,23 @@ export default function FitnessPage() {
                             >
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-medium text-[#f4f4f5]">{exercise.name}</p>
-                                <p className="mt-0.5 text-xs text-[#71717a]">
-                                  {exercise.sets} working {exercise.sets === 1 ? "set" : "sets"} · {exercise.repRangeMin}-{exercise.repRangeMax} reps ·{" "}
-                                  {exercise.failureRir[0]}-{exercise.failureRir[1]} RIR
-                                </p>
+                                {isCustom ? (
+                                  <p className="mt-0.5 text-xs text-[#71717a]">
+                                    {isPendingCustom ? "Pending dev approval — visible only to you" : "Typed in"}
+                                  </p>
+                                ) : (
+                                  <p className="mt-0.5 text-xs text-[#71717a]">
+                                    {exercise.sets} working {exercise.sets === 1 ? "set" : "sets"} · {exercise.repRangeMin}-{exercise.repRangeMax} reps ·{" "}
+                                    {exercise.failureRir[0]}-{exercise.failureRir[1]} RIR
+                                  </p>
+                                )}
                               </div>
                               {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
                               <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
                             </button>
-                            {isOpen && <LogSetForm exercise={exercise} onLogged={() => markLogged(exercise.name)} />}
+                            {isOpen && (
+                              <LogSetForm exercise={exercise} custom={isCustom} onLogged={() => markLogged(exercise.name)} />
+                            )}
                           </div>
                         );
                       })}
@@ -809,56 +850,6 @@ export default function FitnessPage() {
                 </div>
               );
             })}
-
-            {(() => {
-              const custom = customLifts.filter((c) => MUSCLE_TO_CATEGORIES[c.muscles[0] as MuscleGroup]?.includes(category));
-              if (custom.length === 0) return null;
-              const subKey = `${category}:custom`;
-              const isSubOpen = openSub === subKey;
-              return (
-                <div className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900">
-                  <button
-                    onClick={() => {
-                      setOpenSub(isSubOpen ? null : subKey);
-                      setOpenExercise(null);
-                    }}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-3.5 text-left"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-zinc-100">Your added lifts</p>
-                      <p className="mt-0.5 text-[11px] text-[#71717a]">{custom.length} typed in by you</p>
-                    </div>
-                    <span className="shrink-0 text-[#52525b]">{isSubOpen ? "︿" : "﹀"}</span>
-                  </button>
-                  {isSubOpen && (
-                    <div className="border-t border-zinc-800 px-4 pb-1">
-                      {custom.map((c) => {
-                        const exercise = customLiftAsExercise(c);
-                        const key = `${subKey}:${c.name}`;
-                        const isOpen = openExercise === key;
-                        const isLogged = loggedNames.has(c.name);
-                        return (
-                          <div key={key} className="border-b border-[#1a1a1d] py-3 last:border-0">
-                            <button onClick={() => setOpenExercise(isOpen ? null : key)} className="flex w-full items-center gap-2 text-left">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-medium text-[#f4f4f5]">{c.name}</p>
-                                <p className="mt-0.5 text-xs text-[#71717a]">
-                                  {c.status === "pending" ? "Pending dev approval · " : ""}
-                                  {c.muscles.map((m) => MUSCLE_LABELS[m as MuscleGroup]).join(", ")}
-                                </p>
-                              </div>
-                              {isLogged && <span className="shrink-0 text-xs font-medium text-emerald-400">Logged ✓</span>}
-                              <span className="shrink-0 text-[#3f3f46]">{isOpen ? "︿" : "﹀"}</span>
-                            </button>
-                            {isOpen && <LogSetForm exercise={exercise} custom onLogged={() => markLogged(c.name)} />}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
 
             <button
               onClick={logWorkout}
